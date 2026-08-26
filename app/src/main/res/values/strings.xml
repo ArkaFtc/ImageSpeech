@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">test_project</string>
+    <string name="take_picture">Take Picture</string>
+    <string name="result_placeholder">Point the camera at some text and tap the button.</string>
+    <string name="recognizing">Recognizing…</string>
+    <string name="tts_unavailable">Text-to-speech is unavailable on this device.</string>
 </resources>
