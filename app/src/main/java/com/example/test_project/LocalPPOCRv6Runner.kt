@@ -8,7 +8,6 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.File
 import java.nio.FloatBuffer
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -62,52 +61,100 @@ class LocalPPOCRv6Runner(private val context: Context) {
     }
 
     /** Axis-aligned text box. */
-    private data class Box(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+    private data class Box(
+        override val left: Int,
+        override val top: Int,
+        override val right: Int,
+        override val bottom: Int,
+    ) : TextBox {
         val width get() = right - left
         val height get() = bottom - top
     }
 
     /**
-     * Outcome of one OCR pass. [lines] holds the recognized text, one entry per region, and is
-     * empty when nothing was read - in which case [message] explains why. Keeping the two apart
-     * lets the caller show status text without reading it aloud.
+     * One detected region in both of the shapes it is needed in.
+     *
+     * [padded] is the dilated box the recognizer wants, so glyphs are not clipped. [tight] is what
+     * DBNet actually predicted, and is the only one reading order may use: the dilation adds the
+     * same offset to all four sides, so a wide line grows vertically by roughly half its own height
+     * and adjacent lines end up overlapping by more than they are tall. Ordering off [padded] makes
+     * neighbouring lines look like they share a line, which is what put a book cover's "and" after
+     * the line below it.
+     *
+     * [TextBox] is implemented over [tight] so ordering cannot pick the wrong one by accident.
      */
-    data class OcrResult(val lines: List<String>, val message: String? = null) {
-        val hasText: Boolean get() = lines.isNotEmpty()
+    private data class Detection(val tight: Box, val padded: Box) : TextBox {
+        override val left get() = tight.left
+        override val top get() = tight.top
+        override val right get() = tight.right
+        override val bottom get() = tight.bottom
+    }
+
+    /**
+     * One recognized region: its text and where on the frame it sat.
+     *
+     * The geometry is kept rather than discarded after sorting because the model needs it. A flat
+     * list of lines gives it no way to reason about columns, tables or reading order - which is
+     * exactly what it is being asked to do when OCR alone is not enough.
+     */
+    data class Region(
+        val text: String,
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+    )
+
+    /**
+     * Outcome of one OCR pass. [regions] holds the recognized text in reading order and is empty
+     * when nothing was read - in which case [message] explains why. Keeping the two apart lets the
+     * caller show status text without reading it aloud.
+     */
+    data class OcrResult(val regions: List<Region>, val message: String? = null) {
+        val hasText: Boolean get() = regions.isNotEmpty()
+
+        /** Just the text, in reading order. */
+        val lines: List<String> get() = regions.map { it.text }
 
         /** The recognized text, or the status message when there is none. */
         val displayText: String
             get() = if (hasText) lines.joinToString("\n") else (message ?: "No text detected")
     }
 
-    /** Runs detection + recognition, returning one line of text per detected region. */
+    /** Runs detection + recognition, returning one region per detected block of text. */
     fun runOcr(bitmap: Bitmap): OcrResult {
         val boxes = detect(bitmap)
         if (boxes.isEmpty()) return OcrResult(emptyList(), "No text detected")
 
-        val lines = ArrayList<String>(boxes.size)
-        for (box in boxes) {
+        val regions = ArrayList<Region>(boxes.size)
+        for (detection in boxes) {
+            val padded = detection.padded
             val crop = try {
-                Bitmap.createBitmap(bitmap, box.left, box.top, box.width, box.height)
+                Bitmap.createBitmap(bitmap, padded.left, padded.top, padded.width, padded.height)
             } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "Skipping invalid crop $box", e)
+                Log.w(TAG, "Skipping invalid crop $padded", e)
                 continue
             }
             val (text, confidence) = recognize(crop)
             if (crop != bitmap) crop.recycle()
-            if (text.isNotBlank() && confidence >= MIN_REC_CONFIDENCE) lines.add(text)
+            if (text.isNotBlank() && confidence >= MIN_REC_CONFIDENCE) {
+                // Report the tight box: dilated boxes overlap, which would mislead any consumer
+                // trying to reason about columns or layout from these coordinates.
+                val tight = detection.tight
+                regions.add(Region(text, tight.left, tight.top, tight.right, tight.bottom))
+            }
         }
 
-        return if (lines.isEmpty()) {
+        return if (regions.isEmpty()) {
             OcrResult(emptyList(), "No text recognized (${boxes.size} region(s) found)")
         } else {
-            OcrResult(lines)
+            OcrResult(regions)
         }
     }
 
     // ---------------------------------------------------------------- detection
 
-    private fun detect(bitmap: Bitmap): List<Box> {
+    private fun detect(bitmap: Bitmap): List<Detection> {
         // Preserve aspect ratio; DBNet needs both sides to be multiples of 32.
         val scale = min(1.0f, DET_MAX_SIDE.toFloat() / max(bitmap.width, bitmap.height))
         val detW = roundTo32(bitmap.width * scale)
@@ -145,6 +192,7 @@ class LocalPPOCRv6Runner(private val context: Context) {
                 )
             }
             .filter { it.width >= MIN_BOX_SIZE && it.height >= MIN_BOX_SIZE }
+            .map { tight -> Detection(tight, unclip(tight, bitmap.width, bitmap.height)) }
             .sortedInReadingOrder()
     }
 
@@ -201,7 +249,7 @@ class LocalPPOCRv6Runner(private val context: Context) {
             if (pixelCount < MIN_COMPONENT_PIXELS) continue
             if (scoreSum / pixelCount < BOX_SCORE_THRESHOLD) continue
 
-            boxes.add(unclip(Box(minX, minY, maxX + 1, maxY + 1), width, height))
+            boxes.add(Box(minX, minY, maxX + 1, maxY + 1))
         }
         return boxes
     }
@@ -223,23 +271,7 @@ class LocalPPOCRv6Runner(private val context: Context) {
     }
 
     /** Top-to-bottom, then left-to-right for boxes sitting on roughly the same line. */
-    private fun List<Box>.sortedInReadingOrder(): List<Box> {
-        val sorted = sortedWith(compareBy({ it.top }, { it.left })).toMutableList()
-        for (i in 0 until sorted.size - 1) {
-            for (j in i downTo 0) {
-                val a = sorted[j]
-                val b = sorted[j + 1]
-                val sameLine = abs(b.top - a.top) < min(a.height, b.height) / 2
-                if (sameLine && b.left < a.left) {
-                    sorted[j] = b
-                    sorted[j + 1] = a
-                } else {
-                    break
-                }
-            }
-        }
-        return sorted
-    }
+    private fun List<Detection>.sortedInReadingOrder(): List<Detection> = ReadingOrder.sort(this)
 
     // -------------------------------------------------------------- recognition
 
