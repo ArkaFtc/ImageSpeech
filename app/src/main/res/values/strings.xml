@@ -1,3 +1,35 @@
 <resources>
-    <string name="app_name">test_project</string>
+    <string name="app_name">ImageSpeech</string>
+
+    <string name="hold_to_ask">Hold to ask</string>
+    <string name="hold_to_ask_description">Tap to read the text aloud, or hold and speak to ask a question about what the camera sees.</string>
+
+    <string name="result_placeholder">Point the camera at some text. Tap to read it, or hold and speak to ask a question.</string>
+    <string name="listening">Listening…</string>
+    <string name="working">Reading…</string>
+    <string name="thinking">Looking…</string>
+
+    <string name="ocr_unavailable">The text reader could not start on this device.</string>
+    <string name="no_frame">No camera frame was ready. Try again.</string>
+    <string name="too_blurry">That shot was too blurry to read. Hold the phone steady and try again.</string>
+    <string name="model_unavailable">Answering questions is not available on this device yet. Reading the text instead.</string>
+
+    <string name="startup_text">Loading the text reader…</string>
+    <string name="startup_camera">Starting the camera…</string>
+    <string name="download_banner_detail">One time, over Wi-Fi. Reading text works now.</string>
+    <string name="download_banner_progress">%1$d%% · one time, over Wi-Fi. Reading text works now.</string>
+
+    <string name="download_channel">Model download</string>
+    <string name="download_title">Downloading the language model</string>
+    <string name="download_progress">Downloading the language model: %1$d%%</string>
+    <string name="download_started">Downloading the language model, about %1$d megabytes. This happens once, over Wi-Fi. Reading text works in the meantime.</string>
+    <string name="download_finished">The language model is ready. You can now ask questions.</string>
+
+    <string name="engine_channel">Language model</string>
+    <string name="engine_resident_title">ImageSpeech is ready</string>
+    <string name="engine_resident_text">Keeping the language model loaded so answers start quickly.</string>
+
+    <string name="tts_unavailable">Text-to-speech is unavailable on this device.</string>
+    <string name="camera_required">ImageSpeech needs the camera to work.</string>
+    <string name="mic_optional">Without the microphone, the button will only read text aloud.</string>
 </resources>

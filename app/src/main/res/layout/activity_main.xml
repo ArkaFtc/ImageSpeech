@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#99000000"
+        android:padding="16dp">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxHeight="180dp">
+
+            <TextView
+                android:id="@+id/txtResult"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp"
+                android:text="@string/result_placeholder" />
+
+        </ScrollView>
+
+        <!--
+          Deliberately oversized: the target has to be findable without sight, and the gesture is
+          press-and-hold rather than tap, so the finger stays on it for the length of a question.
+        -->
+        <Button
+            android:id="@+id/btnAsk"
+            android:layout_width="match_parent"
+            android:layout_height="96dp"
+            android:layout_marginTop="12dp"
+            android:textSize="20sp"
+            android:text="@string/hold_to_ask"
+            android:contentDescription="@string/hold_to_ask_description" />
+
+    </LinearLayout>
+
+    <!--
+      Model download: a banner, not a blocker. Reading text works perfectly well while the weights
+      are still arriving, so this reports progress without taking the camera away.
+    -->
+    <LinearLayout
+        android:id="@+id/downloadBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="vertical"
+        android:background="#E6101418"
+        android:padding="16dp"
+        android:elevation="4dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/txtDownloadTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:text="@string/download_title" />
+
+        <TextView
+            android:id="@+id/txtDownloadDetail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="#B9C0CC"
+            android:textSize="13sp"
+            android:text="@string/download_banner_detail" />
+
+        <ProgressBar
+            android:id="@+id/barDownload"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:max="100"
+            android:progress="0" />
+
+    </LinearLayout>
+
+    <!--
+      Startup: a full cover, because there is genuinely nothing to show yet. The camera has not
+      produced a frame and the OCR models are still being opened, so the alternative is the black
+      rectangle of an unbound PreviewView.
+    -->
+    <LinearLayout
+        android:id="@+id/startupOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#121418"
+        android:padding="32dp"
+        android:elevation="8dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ProgressBar
+            android:id="@+id/startupSpinner"
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:id="@+id/txtStartupTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:text="@string/app_name" />
+
+        <TextView
+            android:id="@+id/txtStartupDetail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:textColor="#B9C0CC"
+            android:textSize="15sp"
+            android:text="@string/startup_camera" />
+
+    </LinearLayout>
+
+</FrameLayout>
