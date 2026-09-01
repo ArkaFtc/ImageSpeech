@@ -146,10 +146,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     /**
      * Marks the block the voice is on, and scrolls it into view.
      *
-     * It trails the voice by up to [SpeechQueue.MAX_PENDING] utterances, because queueing is what
-     * returns rather than speaking. Tightening that would mean waiting for each utterance to finish
-     * before queueing the next, which is exactly the gap-between-sentences the queue exists to
-     * avoid - so the highlight is deliberately approximate.
+     * It trails the voice by up to [SpeechQueue.MAX_PENDING] queued utterances plus the one being
+     * spoken, because queueing is what returns rather than speaking. Tightening that would mean
+     * waiting for each utterance to finish before queueing the next, which is exactly the
+     * gap-between-sentences the queue exists to avoid - so the highlight is deliberately
+     * approximate.
      */
     private fun highlight(index: Int?) {
         blockViews.forEachIndexed { position, view ->

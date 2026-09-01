@@ -61,6 +61,58 @@ class SentenceChunkerTest {
         assertEquals(listOf("Gate 14", "Boarding 9:40"), pieces)
     }
 
+    /**
+     * The other half of the newline rule. In a paragraph the break is only where the column ran
+     * out, and cutting there puts a falling full stop in the middle of a clause - which is what
+     * made a page of body text sound stuttery.
+     */
+    @Test
+    fun `folds a wrapped line back into its sentence`() {
+        val chunker = SentenceChunker()
+
+        val pieces = chunker.offer(
+            "Coffee is served from six in the\n" +
+                "morning until eleven, and the\n" +
+                "kitchen closes at ten. Last orders\n" +
+                "are half an hour before that.\n"
+        )
+
+        assertEquals(
+            listOf(
+                "Coffee is served from six in the morning until eleven, " +
+                    "and the kitchen closes at ten.",
+                "Last orders are half an hour before that.",
+            ),
+            pieces,
+        )
+    }
+
+    @Test
+    fun `keeps a line that already ended in punctuation as its own utterance`() {
+        val chunker = SentenceChunker()
+
+        val pieces = chunker.offer("The door is locked.\nRing the bell for service. ")
+
+        assertEquals(listOf("The door is locked.", "Ring the bell for service."), pieces)
+    }
+
+    @Test
+    fun `treats a blank line as a paragraph break`() {
+        val chunker = SentenceChunker()
+
+        assertEquals(listOf("Chapter one"), chunker.offer("Chapter one\n\nIt was a dark night."))
+        assertEquals("It was a dark night.", chunker.flush())
+    }
+
+    /** A one-character column is unspeakable on its own; it rides along with the line below. */
+    @Test
+    fun `merges lines too short to be worth an utterance`() {
+        val chunker = SentenceChunker()
+
+        assertEquals(emptyList<String>(), chunker.offer("A\nB\nCancelled"))
+        assertEquals("A B Cancelled", chunker.flush())
+    }
+
     @Test
     fun `drops whitespace-only input`() {
         val chunker = SentenceChunker()
