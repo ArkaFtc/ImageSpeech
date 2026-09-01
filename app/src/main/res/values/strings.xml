@@ -1,13 +1,32 @@
 <resources>
     <string name="app_name">ImageSpeech</string>
 
-    <string name="hold_to_ask">Hold to ask</string>
-    <string name="hold_to_ask_description">Tap to read the text aloud, or hold and speak to ask a question about what the camera sees.</string>
+    <!-- Screen one: the camera. -->
+    <string name="capture_hint">Point the camera at some text and take a photo.</string>
+    <string name="take_photo">Take photo</string>
+    <string name="take_photo_description">Take a photo of what the camera is pointed at, then work through the text in it.</string>
+    <string name="capturing">Holding still…</string>
+    <string name="reading_text">Reading the text…</string>
 
-    <string name="result_placeholder">Point the camera at some text. Tap to read it, or hold and speak to ask a question.</string>
+    <!-- Screen two: the shot. -->
+    <string name="review_loading">Reading the text…</string>
+    <plurals name="blocks_found">
+        <item quantity="one">%d block of text</item>
+        <item quantity="other">%d blocks of text</item>
+    </plurals>
+    <string name="review_summary">%1$s. Tap a block to hear it, or hold Ask and speak to ask about the photo.</string>
+    <string name="no_text_found">No text found in this photo. You can still hold Ask and speak to ask about it.</string>
+    <string name="block_description">Block %1$d of %2$d. %3$s</string>
+    <string name="read_all">Read all</string>
+    <string name="read_all_description">Read every block of text aloud, in order.</string>
+    <string name="new_photo">New photo</string>
+    <string name="new_photo_description">Go back to the camera and take another photo.</string>
+
+    <string name="hold_to_ask">Hold to ask</string>
+    <string name="hold_to_ask_description">Hold and speak to ask a question about the photo.</string>
     <string name="listening">Listening…</string>
-    <string name="working">Reading…</string>
     <string name="thinking">Looking…</string>
+    <string name="nothing_heard">I did not hear a question. Hold the button, speak, then let go.</string>
 
     <string name="ocr_unavailable">The text reader could not start on this device.</string>
     <string name="no_frame">No camera frame was ready. Try again.</string>
@@ -31,5 +50,5 @@
 
     <string name="tts_unavailable">Text-to-speech is unavailable on this device.</string>
     <string name="camera_required">ImageSpeech needs the camera to work.</string>
-    <string name="mic_optional">Without the microphone, the button will only read text aloud.</string>
+    <string name="mic_optional">Without the microphone, you can read the text but not ask questions.</string>
 </resources>

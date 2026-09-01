@@ -1,51 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  The host frame. Everything the user actually interacts with lives in the screen container; the
+  banner and the startup cover are drawn over whichever screen happens to be showing, because
+  neither of them is a reason to interrupt what the user is doing.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#121418">
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/viewFinder"
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/screen"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:orientation="vertical"
-        android:background="#99000000"
-        android:padding="16dp">
-
-        <ScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxHeight="180dp">
-
-            <TextView
-                android:id="@+id/txtResult"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
-                android:textIsSelectable="true"
-                android:textSize="16sp"
-                android:text="@string/result_placeholder" />
-
-        </ScrollView>
-
-        <!--
-          Deliberately oversized: the target has to be findable without sight, and the gesture is
-          press-and-hold rather than tap, so the finger stays on it for the length of a question.
-        -->
-        <Button
-            android:id="@+id/btnAsk"
-            android:layout_width="match_parent"
-            android:layout_height="96dp"
-            android:layout_marginTop="12dp"
-            android:textSize="20sp"
-            android:text="@string/hold_to_ask"
-            android:contentDescription="@string/hold_to_ask_description" />
-
-    </LinearLayout>
 
     <!--
       Model download: a banner, not a blocker. Reading text works perfectly well while the weights

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Screen two: the shot, frozen, broken into the things it is worth hearing one at a time.
+
+  The ask bar is pinned outside the scroll view on purpose. It is the one control whose position
+  must never change, because it is the one a user has to find without looking.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#121418">
+
+    <ScrollView
+        android:id="@+id/reviewScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <ImageView
+                android:id="@+id/imgShot"
+                android:layout_width="match_parent"
+                android:layout_height="120dp"
+                android:scaleType="centerCrop"
+                android:background="#1E2430"
+                android:importantForAccessibility="no" />
+
+            <TextView
+                android:id="@+id/txtReviewStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textIsSelectable="true"
+                android:text="@string/review_loading" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnReadAll"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:text="@string/read_all"
+                    android:contentDescription="@string/read_all_description" />
+
+                <Button
+                    android:id="@+id/btnRetake"
+                    android:layout_width="0dp"
+                    android:layout_height="56dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:text="@string/new_photo"
+                    android:contentDescription="@string/new_photo_description" />
+
+            </LinearLayout>
+
+            <!-- One tappable child per block of text, added at runtime from the OCR result. -->
+            <LinearLayout
+                android:id="@+id/blockList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical" />
+
+        </LinearLayout>
+
+    </ScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#2A3140" />
+
+    <!--
+      Press and hold rather than tap: the finger stays down for the length of the question, which is
+      both how the recording is bounded and how a barge-in is expressed.
+    -->
+    <Button
+        android:id="@+id/btnAsk"
+        android:layout_width="match_parent"
+        android:layout_height="96dp"
+        android:layout_margin="16dp"
+        android:textSize="20sp"
+        android:text="@string/hold_to_ask"
+        android:contentDescription="@string/hold_to_ask_description" />
+
+</LinearLayout>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The block currently being spoken. A sighted helper looking over a shoulder needs to see where the
+  voice is; the contrast is high enough to be followed from arm length.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#1B3A63" />
+    <stroke
+        android:width="2dp"
+        android:color="#78B4FF" />
+    <corners android:radius="12dp" />
+</shape>

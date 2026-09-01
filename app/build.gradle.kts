@@ -49,6 +49,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     testImplementation(libs.junit)
     implementation("androidx.appcompat:appcompat:1.7.0")
+
+    // The camera screen and the review screen are two fragments over one Activity: the OCR engine,
+    // the voice and the model binding are expensive enough that they have to outlive the move
+    // between screens, and the captured frame has to survive it without going through an Intent.
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation("androidx.camera:camera-camera2:1.6.1")
     implementation("androidx.camera:camera-lifecycle:1.6.1")
     implementation("androidx.camera:camera-view:1.6.1")
