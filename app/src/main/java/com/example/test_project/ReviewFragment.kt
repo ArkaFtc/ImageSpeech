@@ -233,7 +233,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             // microphone, or a start that lost the race with the speaking. Reading the page back
             // would look like the app ignored the question, so say what happened instead.
             if (holdMs >= IntentRouter.TAP_THRESHOLD_MS && clip?.hasSpeech != true) {
-                val notice = getString(R.string.nothing_heard)
+                // Digital silence is not a quiet question - the microphone is muted, blocked or
+                // unpermitted - and asking the user to speak again would never get them anywhere.
+                val notice = getString(
+                    if (clip == null || clip.isSilent) R.string.mic_silent else R.string.nothing_heard
+                )
                 setStatus(notice)
                 host.speech.speak(notice)
                 return@startVoice

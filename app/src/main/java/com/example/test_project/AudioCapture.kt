@@ -32,7 +32,18 @@ class AudioCapture {
         val durationMs: Long,
         val hasSpeech: Boolean,
         val voicedMs: Long,
+        /** RMS of the loudest frame, on the PCM16 scale. See [isSilent]. */
+        val peak: Double,
     ) {
+        /**
+         * Whether the microphone handed back nothing at all, as opposed to a quiet room.
+         *
+         * A muted mic, a revoked permission and an emulator with no host audio input all record a
+         * clip of digital silence, which is indistinguishable from a held press with no question
+         * in it unless the level is looked at. They need very different things said about them.
+         */
+        val isSilent: Boolean get() = peak < ABSOLUTE_FLOOR
+
         /** Writes the clip as a WAV file, which is what the recognizer wants to be handed. */
         fun writeWav(target: File) {
             FileOutputStream(target).use { out ->
@@ -49,7 +60,8 @@ class AudioCapture {
                 sampleRate == other.sampleRate &&
                 durationMs == other.durationMs &&
                 hasSpeech == other.hasSpeech &&
-                voicedMs == other.voicedMs
+                voicedMs == other.voicedMs &&
+                peak == other.peak
         }
 
         override fun hashCode(): Int {
@@ -58,6 +70,7 @@ class AudioCapture {
             result = 31 * result + durationMs.hashCode()
             result = 31 * result + hasSpeech.hashCode()
             result = 31 * result + voicedMs.hashCode()
+            result = 31 * result + peak.hashCode()
             return result
         }
     }
@@ -138,13 +151,22 @@ class AudioCapture {
         if (pcm.isEmpty()) return null
 
         val durationMs = pcm.size.toLong() * 1000 / (SAMPLE_RATE * BYTES_PER_SAMPLE)
-        val voicedMs = voicedMillis(pcm)
+        val vad = score(pcm)
+        // Every route out of a press that heard nothing looks the same to the user, so the levels
+        // that decided it are logged: a peak near zero is a dead microphone, a peak well over the
+        // threshold with no voiced frames is the detector being wrong.
+        Log.d(
+            TAG,
+            "clip ${durationMs}ms voiced=${vad.voicedMs}ms peak=${vad.peak.toInt()} " +
+                "floor=${vad.floor.toInt()} threshold=${vad.threshold.toInt()}",
+        )
         return Clip(
             pcm = pcm,
             sampleRate = SAMPLE_RATE,
             durationMs = durationMs,
-            hasSpeech = voicedMs >= MIN_VOICED_MS,
-            voicedMs = voicedMs,
+            hasSpeech = vad.voicedMs >= MIN_VOICED_MS,
+            voicedMs = vad.voicedMs,
+            peak = vad.peak,
         )
     }
 
@@ -164,11 +186,11 @@ class AudioCapture {
      * it only has to separate "the user said something" from "the user held the button in silence",
      * and both failure directions land on a route that still does something sensible.
      */
-    private fun voicedMillis(pcm: ByteArray): Long {
+    private fun score(pcm: ByteArray): Vad {
         val samplesPerFrame = SAMPLE_RATE * FRAME_MS / 1000
         val frameBytes = samplesPerFrame * BYTES_PER_SAMPLE
         val frameCount = pcm.size / frameBytes
-        if (frameCount < 3) return 0
+        if (frameCount < 3) return Vad(0, 0.0, 0.0, ABSOLUTE_FLOOR)
 
         val energies = DoubleArray(frameCount)
         for (f in 0 until frameCount) {
@@ -186,8 +208,21 @@ class AudioCapture {
         val floor = energies.sorted()[frameCount / 5]
         val threshold = maxOf(floor * NOISE_MULTIPLE, ABSOLUTE_FLOOR)
         val voicedFrames = energies.count { it > threshold }
-        return voicedFrames.toLong() * FRAME_MS
+        return Vad(
+            voicedMs = voicedFrames.toLong() * FRAME_MS,
+            peak = energies.max(),
+            floor = floor,
+            threshold = threshold,
+        )
     }
+
+    /** What [score] measured, kept together so the decision can be logged as well as used. */
+    private data class Vad(
+        val voicedMs: Long,
+        val peak: Double,
+        val floor: Double,
+        val threshold: Double,
+    )
 
     companion object {
         private const val TAG = "AudioCapture"

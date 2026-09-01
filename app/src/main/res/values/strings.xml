@@ -27,6 +27,7 @@
     <string name="listening">Listening…</string>
     <string name="thinking">Looking…</string>
     <string name="nothing_heard">I did not hear a question. Hold the button, speak, then let go.</string>
+    <string name="mic_silent">The microphone is not picking up any sound. Check that it is not muted and that ImageSpeech has microphone access.</string>
 
     <string name="ocr_unavailable">The text reader could not start on this device.</string>
     <string name="no_frame">No camera frame was ready. Try again.</string>

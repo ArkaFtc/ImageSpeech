@@ -82,8 +82,10 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { granted ->
-        if (granted[Manifest.permission.CAMERA] == true) {
+    ) { _ ->
+        // Read the granted state back rather than trusting the result map: only the permissions
+        // still missing are asked for, so anything already held is absent from it.
+        if (isGranted(Manifest.permission.CAMERA)) {
             startCamera()
         } else {
             Toast.makeText(requireContext(), R.string.camera_required, Toast.LENGTH_LONG).show()
@@ -91,7 +93,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
             // Nothing will ever arrive from the preview, so stop the startup cover waiting for it.
             host.onPreviewSettled()
         }
-        if (granted[Manifest.permission.RECORD_AUDIO] != true) {
+        if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
             Toast.makeText(requireContext(), R.string.mic_optional, Toast.LENGTH_LONG).show()
         }
     }
@@ -102,10 +104,14 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         shutter = view.findViewById(R.id.btnShutter)
         shutter.setOnClickListener { capture() }
 
-        if (hasCameraPermission()) {
+        // Every missing permission, not just the camera. Gating the whole prompt on the camera
+        // left the microphone unasked for good once the camera had been granted, and a press then
+        // recorded silence - which the ask button reports as not having heard a question.
+        val missing = REQUIRED_PERMISSIONS.filterNot(::isGranted)
+        if (missing.isEmpty()) {
             startCamera()
         } else {
-            permissionLauncher.launch(REQUIRED_PERMISSIONS)
+            permissionLauncher.launch(missing.toTypedArray())
         }
     }
 
@@ -192,8 +198,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     // ------------------------------------------------------------------ camera
 
-    private fun hasCameraPermission() =
-        ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) ==
+    private fun isGranted(permission: String) =
+        ContextCompat.checkSelfPermission(requireContext(), permission) ==
             PackageManager.PERMISSION_GRANTED
 
     private fun startCamera() {
