@@ -13,9 +13,7 @@ import kotlin.concurrent.thread
 /**
  * Records the microphone for as long as the button is held.
  *
- * The clip is the source of truth for routing and, once the model's audio tower is wired up, the
- * question itself. It is captured at 16 kHz mono PCM16 because that is what both the on-device
- * recognizer and the model's audio encoder expect - resampling later would be pure loss.
+ * It is captured at 16 kHz mono PCM16
  */
 class AudioCapture {
 
