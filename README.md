@@ -1,29 +1,43 @@
 # ImageSpeech
 
-An Android camera app for people who cannot see the screen. Point the phone at something and
-either **tap** to have its text read back word for word, or **hold and speak** to ask a question
-about what the camera sees.
+An Android camera app for people who cannot see the screen. Take a photo of something, then work
+through the text in it: **tap any block** to hear it read back word for word, or **hold and speak**
+to ask a question about the shot.
 
 Everything runs on the device. No network is used after the first-run model download.
 
-## The one gesture
+## Two screens
+
+**The camera.** One oversized button, because it is the only thing on the screen and it has to be
+findable without sight. Pressing it opens a 300 ms burst, keeps the sharpest frame of it, and runs
+OCR on that frame.
+
+**The shot.** The text, frozen and grouped into blocks:
 
 | You do | It does | Cost |
 |---|---|---|
-| **Tap** the button | Reads the text aloud, verbatim | ~200 ms to first word, no GPU |
-| **Hold**, say "read this", release | Same — reading never wakes the model | ~200 ms to first word, no GPU |
-| **Hold**, ask anything else, release | Gemma 4 E2B answers, using the image *and* the OCR text | first sentence ~1–2 s |
+| **Tap** a block | Reads that block aloud, verbatim | ~200 ms to first word, no GPU |
+| **Read all** | Reads every block, in order | ~200 ms to first word, no GPU |
+| **Hold** Ask, say "read this", release | Same — reading never wakes the model | ~200 ms to first word, no GPU |
+| **Hold** Ask, ask anything else, release | Gemma 4 E2B answers, using the image *and* the OCR text | first sentence ~1–2 s |
 
-Two of the three paths never load the language model. That is deliberate: it is what keeps the app
-responsive and the phone cool, since reading text is the common case and a vision model is the
-expensive way to do it.
+Every path but the last one leaves the language model asleep. That is deliberate: it is what keeps
+the app responsive and the phone cool, since reading text is the common case and a vision model is
+the expensive way to do it.
 
-### Why holding is not just a longer tap
+### Why the photo is frozen
 
-The press opens a work window. The shutter and microphone start together, the sharpest frame of a
-short burst goes straight into OCR, and — once the press passes 400 ms and is known not to be a tap
-— the image and OCR text are encoded into the model's context. All of that finishes while you are
-still speaking, so the expensive part is paid for with time you were spending anyway.
+A live preview can only answer "read it now": everything it found collapses into one utterance,
+and by the time the third paragraph is spoken the camera is pointed somewhere else. Freezing the
+frame is what makes the text browsable — a header can be skipped, a paragraph heard twice, and a
+question asked about exactly the picture that was read.
+
+### Where the prefill went
+
+The expensive half of a question is encoding the frame and the OCR block, and it depends on nothing
+the user has said yet. That work used to run under the user's voice during a press-and-hold. It now
+starts the moment the shot opens, and again after every answer — so it is paid for with the seconds
+spent listening to blocks, which is more time than a held button ever gave it.
 
 ## Requirements
 
@@ -68,7 +82,11 @@ Changing `Backend` in `GemmaSceneAnswerer` means changing `ModelStore.MODEL_NAME
 
 | File | Responsibility |
 |---|---|
-| `MainActivity` | The gesture, the burst capture, and which lane a press takes |
+| `MainActivity` | Host for both screens: the OCR engine, the voice, and the model binding |
+| `CaptureFragment` | The camera, the burst capture, and the shutter |
+| `ReviewFragment` | The blocks, tap-to-read, and the ask gesture |
+| `TextBlocks` | Groups OCR lines into paragraphs, headings and table rows |
+| `Shot` / `ShotViewModel` | Carries the frame and its OCR result between the two screens |
 | `IntentRouter` | Tap / read-intent / question — the three-way decision |
 | `AudioCapture` | Records while held; energy-based VAD decides whether anything was said |
 | `Transcriber` | Recognizes the recorded clip without touching the live microphone |
@@ -100,8 +118,9 @@ truth, with box coordinates so it can reason about columns and tables.
 ./gradlew :app:testDebugUnitTest
 ```
 
-19 unit tests, covering the pure logic that is easy to get quietly wrong: sentence chunking across
-token boundaries, the routing table, and reading order for a cover that mixes type sizes.
+24 unit tests, covering the pure logic that is easy to get quietly wrong: sentence chunking across
+token boundaries, the routing table, reading order for a cover that mixes type sizes, and the
+grouping of OCR lines into blocks.
 
 ## Known gaps
 
@@ -111,6 +130,10 @@ token boundaries, the routing table, and reading order for a cover that mixes ty
   failure, so the first press on an unsupported device pays the load before giving up.
 - **Audio into the model is unproven.** The clip is accepted without error, but it has not been
   confirmed the model attends to it rather than the transcript.
+- **Blocking merges true columns that share a printed line.** `TextBlocks` deliberately joins boxes
+  that overlap vertically, so a menu row reads as "espresso, three fifty" rather than two taps. On a
+  genuine two-column page that puts one line from each column in the same block — which is the order
+  `ReadingOrder` already produces, so it is not made worse here, but neither is it fixed.
 
 `PLAN.md` has the full design rationale, the measurements behind these numbers, and what to test
 first when you get a device.

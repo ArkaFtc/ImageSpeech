@@ -6,6 +6,15 @@ A press-and-hold camera gesture that answers questions about what the phone is l
 
 ## Status
 
+> **Update, 31 August 2026 — the interaction changed.** The single press-and-hold gesture this plan
+> is built around has been replaced by two screens: a camera with a shutter, then a review screen
+> where the recognized text is offered as tappable blocks and the ask button lives. Section 2 is
+> kept as the record of why the original gesture was shaped the way it was; what shipped is
+> described in `README.md`. Everything downstream of the gesture survived the change intact — the
+> routing table (section 3), the prompt contract (section 4) and the voice-throttled output
+> (section 5) all still describe the app, and the prefill window of section 2 still exists, just
+> opened by the review screen rather than by the length of a press.
+
 | Phase | State |
 |---|---|
 | 1 — LiteRT-LM runtime | **Written, untested on device.** `litertlm-android:0.16.1` resolved; `Engine`/`EngineConfig` on the GPU backend in `GemmaSceneAnswerer`. |
@@ -181,6 +190,10 @@ WorkManager's service with `android:foregroundServiceType="dataSync"`.
 ---
 
 ## 2. Interaction: one gesture, four beats
+
+*Superseded — see the update at the top of Status. The prefill argument below is why the two-screen
+version still opens a turn before it is asked anything; the four beats themselves no longer happen
+in one press.*
 
 The button press is not just an input event — it is the start of a prefill window. Everything expensive that does not depend on the question happens while the user is still asking it.
 

@@ -98,12 +98,12 @@ class LocalPPOCRv6Runner(private val context: Context) {
      * exactly what it is being asked to do when OCR alone is not enough.
      */
     data class Region(
-        val text: String,
-        val left: Int,
-        val top: Int,
-        val right: Int,
-        val bottom: Int,
-    )
+        override val text: String,
+        override val left: Int,
+        override val top: Int,
+        override val right: Int,
+        override val bottom: Int,
+    ) : TextLine
 
     /**
      * Outcome of one OCR pass. [regions] holds the recognized text in reading order and is empty
@@ -115,6 +115,13 @@ class LocalPPOCRv6Runner(private val context: Context) {
 
         /** Just the text, in reading order. */
         val lines: List<String> get() = regions.map { it.text }
+
+        /**
+         * The text grouped the way it is laid out: paragraphs, headings, rows. This is what the
+         * review screen offers one at a time, so it is computed once per result rather than per
+         * redraw.
+         */
+        val blocks: List<TextBlock> by lazy { TextBlocks.group(regions) }
 
         /** The recognized text, or the status message when there is none. */
         val displayText: String
