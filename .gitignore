@@ -1,12 +1,7 @@
 *.iml
-.gradle
-/local.properties
 .DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
 local.properties
-.idea/
-# Kotlin incremental-compilation cache
-.kotlin/
