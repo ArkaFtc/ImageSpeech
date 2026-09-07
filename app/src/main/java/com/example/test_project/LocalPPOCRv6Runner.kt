@@ -392,3 +392,4 @@ class LocalPPOCRv6Runner(private val context: Context) {
         private val REC_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
     }
 }
+ 
