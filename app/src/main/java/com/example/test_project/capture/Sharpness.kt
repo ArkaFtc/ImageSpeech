@@ -1,19 +1,9 @@
-package com.example.test_project
+package com.example.test_project.capture
 
 import android.graphics.Bitmap
 import androidx.core.graphics.scale
 
-/**
- * Blur detection for captured frames.
- *
- * A blind user has no preview to steady the phone against, so a fraction of captures are
- * motion-blurred. Blur costs OCR far more than it costs scene description, so the capture path
- * grabs a short burst and keeps whichever frame scores highest here.
- *
- * The score is the variance of the Laplacian: a sharp image has strong second-derivative response
- * at edges, a blurred one does not. Scores are only comparable between frames of the same scene at
- * the same working resolution, which is why scoring always downscales to [WORK_WIDTH] first.
- */
+/** Blur detection for captured frames. */
 object Sharpness {
 
     private const val WORK_WIDTH = 320

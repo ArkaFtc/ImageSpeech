@@ -1,4 +1,4 @@
-package com.example.test_project
+package com.example.test_project.processing.model
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,18 +11,10 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.example.test_project.R
+import com.example.test_project.processing.ocr.LocalPPOCRv6Runner
 
-/**
- * Owns the model for as long as the app is in use.
- *
- * The engine is roughly 2 GB resident and takes seconds to bring up, so it cannot live and die with
- * the Activity - backgrounding the app would evict it and make the next press pay the whole load
- * again. Holding it in a foreground service is what buys the "keep the engine warm" property the
- * whole latency design assumes.
- *
- * The service is also the [SceneAnswerer] the Activity talks to, so nothing above it has to know
- * whether the model is in-process, absent, or unavailable on this device.
- */
+/** Owns the model for as long as the app is in use. */
 class InferenceService : Service(), SceneAnswerer {
 
     inner class LocalBinder : Binder() {

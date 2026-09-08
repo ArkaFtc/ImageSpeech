@@ -1,4 +1,6 @@
-package com.example.test_project
+package com.example.test_project.processing
+
+
 
 /**
  * Decides which of the three lanes a press belongs to.
@@ -16,7 +18,6 @@ object IntentRouter {
     data class Decision(val route: Route, val because: String)
 
     const val TAP_THRESHOLD_MS = 400L
-
 
     /**
      * @param holdMs how long the button was down
@@ -38,6 +39,11 @@ object IntentRouter {
             return Decision(Route.ASK_MODEL, "speech detected, no transcript")
         }
 
+        if (spoken.trimEnd('?', '.', '!') in setOf(
+                "read", "read this", "read it out loud", "read the page",
+                "please read this to me", "what does it say", "what does this say", "what's it say")) {
+            return Decision(Route.READ_VERBATIM, "read command")
+        }
         return Decision(Route.ASK_MODEL, "question: \"$spoken\"")
     }
 }

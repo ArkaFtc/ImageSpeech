@@ -1,17 +1,12 @@
-package com.example.test_project
+package com.example.test_project.processing.model
 
 import android.graphics.Bitmap
+import com.example.test_project.contract.RecordedAudio
+import com.example.test_project.processing.ocr.LocalPPOCRv6Runner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
-/**
- * The model lane, split into the two halves of the prompt contract.
- *
- * The split is the whole point. [beginTurn] takes everything that does not depend on the question -
- * the frame and the OCR block - and gets it encoded while the button is still held. Only
- * [SceneTurn.ask] waits for the release. That is what hides the dominant latency cost inside time
- * the user was spending anyway.
- */
+/** The model lane, split into the two halves of the prompt contract. */
 interface SceneAnswerer {
 
     /** False when the model is missing, or the device cannot run it at usable speed. */
@@ -26,28 +21,18 @@ interface SceneAnswerer {
     fun close()
 }
 
-/**
- * One opened turn, holding a prefilled context.
- *
- * Turns are expensive to open and cheap to throw away - a press that turns out to be a verbatim
- * read just closes one. Always [close] it, including on the paths that never ask anything.
- */
+/** One opened turn, holding a prefilled context. */
 interface SceneTurn : AutoCloseable {
 
     /**
      * Streams the answer. The collector is expected to be slow because it is feeding a voice, and
-     * that backpressure is load-bearing rather than incidental - see [SpeechQueue]. Cancelling the
+     * that backpressure is load-bearing rather than incidental - see the processor audio stream. Cancelling the
      * collection must stop generation rather than merely stop listening to it.
      */
-    fun ask(audio: AudioCapture.Clip?, transcript: String?): Flow<String>
+    fun ask(audio: RecordedAudio?, transcript: String?): Flow<String>
 }
 
-/**
- * Stands in when the model is absent, and remains the permanent fallback on devices that cannot run
- * it - a CPU-only backend decodes at 2-5 tokens/sec, which is worse than not offering the lane.
- *
- * It explains itself rather than failing silently, because the user cannot see an error.
- */
+/** Stands in when the model is absent, and remains the permanent fallback on devices that cannot run */
 class UnavailableSceneAnswerer(private val reason: String) : SceneAnswerer {
 
     override val isAvailable = false
@@ -56,7 +41,7 @@ class UnavailableSceneAnswerer(private val reason: String) : SceneAnswerer {
         image: Bitmap,
         ocr: LocalPPOCRv6Runner.OcrResult,
     ): SceneTurn = object : SceneTurn {
-        override fun ask(audio: AudioCapture.Clip?, transcript: String?): Flow<String> =
+        override fun ask(audio: RecordedAudio?, transcript: String?): Flow<String> =
             flow { emit(reason) }
 
         override fun close() = Unit

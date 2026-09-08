@@ -1,12 +1,15 @@
-package com.example.test_project
+package com.example.test_project.capture
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -22,23 +25,17 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
+import com.example.test_project.MainActivity
+import com.example.test_project.R
+import com.example.test_project.contract.RecordedAudio
+import java.util.concurrent.Executors
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.Executors
 
-/**
- * Screen one: aim, then take the shot.
- *
- * The shutter is not a single frame. Pressing it opens a short burst and keeps the sharpest frame
- * of it, because the press itself shakes the phone and a blind user has no way to see that the one
- * frame that got taken was smeared. Rejecting a bad frame here costs 300 ms; rejecting it after
- * the fact costs the user a whole retake they did not know they needed.
- */
+/** Screen one: aim, then take the shot. */
 class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private val shots: ShotViewModel by activityViewModels()
@@ -51,6 +48,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     // ---- frame state, touched only from the main thread or under frameLock ----
     private val frameLock = Any()
+    @Volatile private var acceptingFrames = false
     @Volatile private var collecting = false
 
     /** Sharpest frame seen since the shutter. */
@@ -64,21 +62,14 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     private var latestFrame: Bitmap? = null
     private var latestScore = 0.0
 
-    /**
-     * Completes when the analysis pipeline delivers its first frame.
-     *
-     * Binding the camera does not mean frames are flowing yet - there is a warm-up of a few hundred
-     * milliseconds after the session configures. A shutter press inside that window has to wait for
-     * a frame rather than conclude there will never be one.
-     *
-     * Replaced whenever the view is rebuilt, because coming back from the review screen rebinds the
-     * camera and starts that warm-up again. Keeping the old, already-completed one would let the
-     * first press back on this screen skip the wait and find nothing.
-     */
+    /** Completes when the analysis pipeline delivers its first frame. */
     @Volatile
     private var firstFrame = CompletableDeferred<Unit>()
 
     private var captureJob: Job? = null
+    private val audio = AudioCapture()
+    private var pressedAt = 0L
+    private var cameraProvider: ProcessCameraProvider? = null
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -99,10 +90,11 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        acceptingFrames = true
         firstFrame = CompletableDeferred()
         status = view.findViewById(R.id.txtCaptureStatus)
         shutter = view.findViewById(R.id.btnShutter)
-        shutter.setOnClickListener { capture() }
+        wireShutter()
 
         // Every missing permission, not just the camera. Gating the whole prompt on the camera
         // left the microphone unasked for good once the camera had been granted, and a press then
@@ -124,9 +116,35 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     // ------------------------------------------------------------------ the shutter
 
-    private fun capture() {
+    @SuppressLint("ClickableViewAccessibility")
+    private fun wireShutter() {
+        shutter.setOnClickListener { capture() }
+        shutter.setOnTouchListener { button, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    pressedAt = SystemClock.elapsedRealtime()
+                    button.isPressed = true
+                    audio.start()
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    button.isPressed = false
+                    val heldMs = SystemClock.elapsedRealtime() - pressedAt
+                    capture(PressPolicy.audioFor(heldMs, audio.stop()))
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    button.isPressed = false
+                    audio.release()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun capture(clip: RecordedAudio? = null) {
         if (captureJob?.isActive == true) return
-        host.speech.stop()
         shutter.isEnabled = false
 
         captureJob = viewLifecycleOwner.lifecycleScope.launch {
@@ -146,19 +164,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
             }
             val (frame, sharpness) = captured
 
-            setStatus(getString(R.string.reading_text))
-            host.speech.speak(getString(R.string.reading_text))
-
-            val runner = host.ocrEngine()
-            val ocr = if (runner == null) {
-                LocalPPOCRv6Runner.OcrResult(emptyList(), getString(R.string.ocr_unavailable))
-            } else {
-                withContext(Dispatchers.Default) { runner.runOcr(frame) }
-            }
-
-            // The frame goes with the result: the review screen still needs the picture to ask the
-            // model about it, so ownership moves to the ViewModel rather than being freed here.
-            shots.hold(Shot(frame, ocr, sharpness))
+            cameraProvider?.unbindAll()
+            shots.hold(Shot(frame, sharpness, clip))
             host.showReview()
         }
     }
@@ -171,8 +178,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
             bestScore = 0.0
         }
         collecting = true
-        delay(BURST_WINDOW_MS)
-        collecting = false
+        try { delay(BURST_WINDOW_MS) } finally { collecting = false }
 
         return synchronized(frameLock) {
             val winner = bestFrame ?: latestFrame
@@ -184,7 +190,6 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private fun fail(message: String) {
         setStatus(message)
-        viewLifecycleOwner.lifecycleScope.launch { host.speech.speak(message) }
         shutter.isEnabled = true
     }
 
@@ -209,7 +214,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         cameraProviderFuture.addListener({
             // The listener is not lifecycle-aware, so the view may already be gone by now.
             if (!isAdded || view == null) return@addListener
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+            val cameraProvider = cameraProviderFuture.get()
+            this.cameraProvider = cameraProvider
 
             val viewFinder = requireView().findViewById<PreviewView>(R.id.viewFinder)
             // COMPATIBLE backs the preview with a TextureView, which composites with sibling
@@ -257,14 +263,19 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     /** Runs on the analysis executor for every frame; keeps the sharpest one seen while collecting. */
     private fun considerFrame(proxy: ImageProxy) {
         try {
+            if (!acceptingFrames) return
             val upright = rotate(proxy.toBitmap(), proxy.imageInfo.rotationDegrees)
             val score = Sharpness.score(upright)
             if (firstFrame.complete(Unit)) host.onPreviewSettled()
             synchronized(frameLock) {
+                if (!acceptingFrames) {
+                    upright.recycle()
+                    return
+                }
                 // A frame is either the burst best or the standing latest, never both, so it moves
                 // into one slot and the displaced bitmap is freed. No copies.
                 if (collecting) {
-                    if (score > bestScore) {
+                    if (bestFrame == null || score > bestScore) {
                         bestFrame?.recycle()
                         bestFrame = upright
                         bestScore = score
@@ -294,8 +305,21 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     // ------------------------------------------------------------------ lifecycle
 
+    override fun onStop() {
+        captureJob?.cancel()
+        collecting = false
+        audio.release()
+        shutter.isPressed = false
+        super.onStop()
+    }
+
     override fun onDestroyView() {
+        acceptingFrames = false
+        cameraProvider?.unbindAll()
+        cameraProvider = null
+        audio.release()
         super.onDestroyView()
+        captureJob?.cancel()
         captureJob = null
         collecting = false
         synchronized(frameLock) {

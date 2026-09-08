@@ -1,19 +1,9 @@
-package com.example.test_project
+package com.example.test_project.processing.model
 
 import android.content.Context
 import java.io.File
 
-/**
- * Where the model lives on disk, and where it comes from.
- *
- * The weights cannot ship in the APK - they are an order of magnitude larger than the 138 MB of
- * ONNX already in assets, and far past what Play will accept. So the app fetches them once, on
- * first run, and keeps them in its own external files directory.
- *
- * The backend and the file are coupled: a `-gpu` bundle carries GPU weights only and fails on CPU
- * with "TF_LITE_PREFILL_DECODE not found in the model". Changing the backend in
- * [GemmaSceneAnswerer] means changing [MODEL_NAME] and [DOWNLOAD_URL] to match.
- */
+/** Where the model lives on disk, and where it comes from. */
 class ModelStore(context: Context) {
 
     private val directory = File(context.getExternalFilesDir(null), "models")
@@ -41,12 +31,7 @@ class ModelStore(context: Context) {
     }
 
     companion object {
-        /**
-         * The GPU-backend build from Google's own `litert-community` repo, matching the
-         * `Backend.GPU()` engine config. The open-source `litert-torch export_hf` path exports text
-         * and vision only, so a self-converted model would come up without the audio tower - this
-         * artifact has to be the official one.
-         */
+        /** The GPU-backend build from Google's own `litert-community` repo, matching the */
         const val MODEL_NAME = "gemma-4-E2B-it-gpu.litertlm"
 
         const val DOWNLOAD_URL =

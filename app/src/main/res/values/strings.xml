@@ -1,10 +1,11 @@
 <resources>
+    <string name="stop_speaking">Stop and resume camera</string>
     <string name="app_name">ImageSpeech</string>
 
     <!-- Screen one: the camera. -->
-    <string name="capture_hint">Point the camera at some text and take a photo.</string>
+    <string name="capture_hint">Tap to read text. Hold and speak to ask about a photo.</string>
     <string name="take_photo">Take photo</string>
-    <string name="take_photo_description">Take a photo of what the camera is pointed at, then work through the text in it.</string>
+    <string name="take_photo_description">Tap to photograph and read. Hold for at least 400 milliseconds and speak to ask a question.</string>
     <string name="capturing">Holding still…</string>
     <string name="reading_text">Reading the text…</string>
 

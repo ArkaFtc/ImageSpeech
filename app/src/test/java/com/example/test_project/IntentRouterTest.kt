@@ -1,6 +1,8 @@
 package com.example.test_project
 
-import com.example.test_project.IntentRouter.Route
+import com.example.test_project.processing.IntentRouter
+
+import com.example.test_project.processing.IntentRouter.Route
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

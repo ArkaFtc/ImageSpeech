@@ -1,23 +1,20 @@
-package com.example.test_project
+package com.example.test_project.processing.ocr
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.util.Log
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import android.content.Context
+import android.graphics.Bitmap
+import android.util.Log
+import com.example.test_project.contract.TextBlock
+import com.example.test_project.contract.TextBox
 import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/**
- * PP-OCR pipeline: DBNet detection -> box extraction -> CRNN/CTC recognition.
- *
- * det: x [N,3,H,W] (dynamic) -> [N,1,H,W] probability map
- * rec: x [N,3,48,W] (fixed height 48) -> [N,T,18710] class scores
- */
+/** PP-OCR pipeline: DBNet detection -> box extraction -> CRNN/CTC recognition. */
 class LocalPPOCRv6Runner(private val context: Context) {
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
@@ -71,18 +68,7 @@ class LocalPPOCRv6Runner(private val context: Context) {
         val height get() = bottom - top
     }
 
-    /**
-     * One detected region in both of the shapes it is needed in.
-     *
-     * [padded] is the dilated box the recognizer wants, so glyphs are not clipped. [tight] is what
-     * DBNet actually predicted, and is the only one reading order may use: the dilation adds the
-     * same offset to all four sides, so a wide line grows vertically by roughly half its own height
-     * and adjacent lines end up overlapping by more than they are tall. Ordering off [padded] makes
-     * neighbouring lines look like they share a line, which is what put a book cover's "and" after
-     * the line below it.
-     *
-     * [TextBox] is implemented over [tight] so ordering cannot pick the wrong one by accident.
-     */
+    /** One detected region in both of the shapes it is needed in. */
     private data class Detection(val tight: Box, val padded: Box) : TextBox {
         override val left get() = tight.left
         override val top get() = tight.top
@@ -90,13 +76,7 @@ class LocalPPOCRv6Runner(private val context: Context) {
         override val bottom get() = tight.bottom
     }
 
-    /**
-     * One recognized region: its text and where on the frame it sat.
-     *
-     * The geometry is kept rather than discarded after sorting because the model needs it. A flat
-     * list of lines gives it no way to reason about columns, tables or reading order - which is
-     * exactly what it is being asked to do when OCR alone is not enough.
-     */
+    /** One recognized region: its text and where on the frame it sat. */
     data class Region(
         override val text: String,
         override val left: Int,
@@ -392,4 +372,3 @@ class LocalPPOCRv6Runner(private val context: Context) {
         private val REC_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
     }
 }
- 

@@ -68,5 +68,5 @@ dependencies {
 
     // First-run model download: survives process death, retries, and waits for Wi-Fi.
     implementation("androidx.work:work-runtime-ktx:2.10.0")
-    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 }

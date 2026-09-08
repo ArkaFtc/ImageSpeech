@@ -1,5 +1,7 @@
 package com.example.test_project
 
+import com.example.test_project.processing.voice.SentenceChunker
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

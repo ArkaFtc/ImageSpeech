@@ -1,5 +1,8 @@
 package com.example.test_project
 
+import com.example.test_project.processing.ocr.ReadingOrder
+import com.example.test_project.contract.TextBox
+
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -15,13 +18,7 @@ class ReadingOrderTest {
 
     private fun order(vararg regions: Region) = ReadingOrder.sort(regions.toList()).map { it.label }
 
-    /**
-     * The case that shipped wrong: a book cover mixing type sizes.
-     *
-     * "and" is small lowercase, so its box starts *lower* than the box of the much larger line
-     * beneath it. Sorting by top edge puts "Why It Had It" first, which is how the app read the
-     * cover back out of order.
-     */
+    /** The case that shipped wrong: a book cover mixing type sizes. */
     @Test
     fun `orders a cover that mixes type sizes`() {
         val result = order(

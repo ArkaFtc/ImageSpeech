@@ -1,4 +1,4 @@
-package com.example.test_project
+package com.example.test_project.processing.model
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,8 +7,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.work.CoroutineWorker
 import androidx.work.Constraints
+import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
@@ -17,21 +17,15 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.example.test_project.R
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-/**
- * Fetches the model once, on first run.
- *
- * Roughly 1.9 GB over a phone connection is a job that will be interrupted - by the screen locking,
- * by the process dying, by the network dropping - so it runs under WorkManager rather than in the
- * Activity, resumes with a range request instead of starting over, and only claims success once the
- * byte count matches exactly.
- */
-class ModelDownloadWorker(
+/** Fetches the model once, on first run. */
+open class ModelDownloadWorker(
     context: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
@@ -174,12 +168,7 @@ class ModelDownloadWorker(
         const val WORK_NAME = "model-download"
         const val KEY_PERCENT = "percent"
 
-        /**
-         * Queues the download if it is not already done or running.
-         *
-         * Wi-Fi is required rather than merely preferred: ~1.9 GB over cellular is not something to
-         * spend on someone's behalf. The work stays queued until they are on an unmetered network.
-         */
+        /** Queues the download if it is not already done or running. */
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
                 .setConstraints(

@@ -61,7 +61,7 @@
             tools:node="merge" />
 
         <service
-            android:name=".InferenceService"
+            android:name=".processing.model.InferenceService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

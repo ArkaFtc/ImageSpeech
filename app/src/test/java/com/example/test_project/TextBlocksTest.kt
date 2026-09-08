@@ -1,5 +1,8 @@
 package com.example.test_project
 
+import com.example.test_project.processing.ocr.TextBlocks
+import com.example.test_project.processing.ocr.TextLine
+
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

@@ -1,28 +1,10 @@
-package com.example.test_project
+package com.example.test_project.processing.ocr
 
+import com.example.test_project.contract.TextBox
 import kotlin.math.max
 import kotlin.math.min
 
-/** Anything with an axis-aligned bounding box that reading order can be computed over. */
-interface TextBox {
-    val left: Int
-    val top: Int
-    val right: Int
-    val bottom: Int
-}
-
-/**
- * Orders detected text regions the way a person would read them: top to bottom, left to right
- * within a line.
- *
- * The naive version of this sorts by [TextBox.top], which is wrong whenever a page mixes type
- * sizes. A short lowercase word like "and" has a box that starts lower than the box of a large
- * line beneath it, so sorting by top edge swaps the two. Ordering by vertical *centre* is stable
- * against that, because the centre tracks where the line sits rather than how tall its glyphs are.
- *
- * This matters more than it looks: the verbatim lane exists to be faithful, and reading a book
- * cover back in the wrong order is a quiet, plausible-sounding kind of wrong.
- */
+/** Orders detected text regions the way a person would read them: top to bottom, left to right */
 object ReadingOrder {
 
     /**

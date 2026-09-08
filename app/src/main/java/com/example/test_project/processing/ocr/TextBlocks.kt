@@ -1,5 +1,7 @@
-package com.example.test_project
+package com.example.test_project.processing.ocr
 
+import com.example.test_project.contract.TextBlock
+import com.example.test_project.contract.TextBox
 import kotlin.math.max
 import kotlin.math.min
 
@@ -8,46 +10,7 @@ interface TextLine : TextBox {
     val text: String
 }
 
-/**
- * A run of lines that belong together - a paragraph, a heading, a menu row, an address.
- *
- * This is the unit the review screen offers the user. One tap per OCR line would be unusable on a
- * page of body text, and one tap for the whole frame gives no way to skip past the parts that do
- * not matter, so the useful granularity sits between the two.
- */
-data class TextBlock(
-    val lines: List<String>,
-    override val left: Int,
-    override val top: Int,
-    override val right: Int,
-    override val bottom: Int,
-) : TextBox {
-
-    /**
-     * The block as one string, one line per source line.
-     *
-     * The newlines are load-bearing: [SentenceChunker] cuts on them, so a block reaches the voice
-     * as a series of lines rather than a single utterance that cannot be interrupted cleanly.
-     */
-    val text: String get() = lines.joinToString("\n")
-
-    /** A one-line label for the list, since a long block does not fit a row. */
-    val preview: String get() = lines.joinToString(" ")
-}
-
-/**
- * Groups OCR lines, already in reading order, into blocks.
- *
- * The signals are the ones a sighted reader uses without thinking about it: lines that sit close
- * together, start at the same margin and are set in the same size are one thing; a wide gap, a new
- * column or a jump in type size starts another. None of them is reliable alone - a heading is close
- * to the paragraph under it, and a centred line shares no margin with anything - so a line joins the
- * block above it only when all three agree.
- *
- * Getting this wrong is not fatal in either direction: an over-eager split costs an extra tap, and
- * an over-eager join costs a few seconds of listening. It is tuned to split, because skipping ahead
- * is the thing that is hard to do without sight.
- */
+/** Groups OCR lines, already in reading order, into blocks. */
 object TextBlocks {
 
     /**

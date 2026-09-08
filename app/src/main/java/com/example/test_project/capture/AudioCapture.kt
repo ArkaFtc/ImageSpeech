@@ -1,13 +1,12 @@
-package com.example.test_project
+package com.example.test_project.capture
 
 import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import com.example.test_project.contract.RecordedAudio
 import java.io.ByteArrayOutputStream
-import java.io.File
-import java.io.FileOutputStream
 import kotlin.concurrent.thread
 
 /**
@@ -17,63 +16,7 @@ import kotlin.concurrent.thread
  */
 class AudioCapture {
 
-    /**
-     * One press worth of microphone.
-     *
-     * [hasSpeech] is the routing signal. Hold duration is deliberately not part of it: a fumbled
-     * 1.2 s press with no speech in it must not reach the model, and a crisp 0.8 s question must
-     * not be discarded. Duration decides only the deliberate tap, upstream in [IntentRouter].
-     */
-    data class Clip(
-        val pcm: ByteArray,
-        val sampleRate: Int,
-        val durationMs: Long,
-        val hasSpeech: Boolean,
-        val voicedMs: Long,
-        /** RMS of the loudest frame, on the PCM16 scale. See [isSilent]. */
-        val peak: Double,
-    ) {
-        /**
-         * Whether the microphone handed back nothing at all, as opposed to a quiet room.
-         *
-         * A muted mic, a revoked permission and an emulator with no host audio input all record a
-         * clip of digital silence, which is indistinguishable from a held press with no question
-         * in it unless the level is looked at. They need very different things said about them.
-         */
-        val isSilent: Boolean get() = peak < ABSOLUTE_FLOOR
-
-        /** Writes the clip as a WAV file, which is what the recognizer wants to be handed. */
-        fun writeWav(target: File) {
-            FileOutputStream(target).use { out ->
-                out.write(wavHeader(pcm.size, sampleRate))
-                out.write(pcm)
-            }
-        }
-
-        // Data classes with an array member need these written out to compare by content.
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is Clip) return false
-            return pcm.contentEquals(other.pcm) &&
-                sampleRate == other.sampleRate &&
-                durationMs == other.durationMs &&
-                hasSpeech == other.hasSpeech &&
-                voicedMs == other.voicedMs &&
-                peak == other.peak
-        }
-
-        override fun hashCode(): Int {
-            var result = pcm.contentHashCode()
-            result = 31 * result + sampleRate
-            result = 31 * result + durationMs.hashCode()
-            result = 31 * result + hasSpeech.hashCode()
-            result = 31 * result + voicedMs.hashCode()
-            result = 31 * result + peak.hashCode()
-            return result
-        }
-    }
-
-    private var recorder: AudioRecord? = null
+    @Volatile private var recorder: AudioRecord? = null
     private var worker: Thread? = null
     private val sink = ByteArrayOutputStream()
 
@@ -100,7 +43,7 @@ class AudioCapture {
                 ENCODING,
                 bufferBytes,
             )
-        } catch (e: IllegalArgumentException) {
+        } catch (e: Exception) {
             Log.e(TAG, "Could not construct AudioRecord", e)
             return false
         }
@@ -114,12 +57,18 @@ class AudioCapture {
         sink.reset()
         recorder = record
         capturing = true
-        record.startRecording()
+        try { record.startRecording() } catch (error: Exception) {
+            capturing = false
+            recorder = null
+            record.release()
+            Log.w(TAG, "Microphone unavailable", error)
+            return false
+        }
 
         worker = thread(name = "audio-capture") {
             val chunk = ByteArray(bufferBytes)
-            while (capturing) {
-                val read = record.read(chunk, 0, chunk.size)
+            while (capturing && recorder === record) {
+                val read = runCatching { record.read(chunk, 0, chunk.size) }.getOrDefault(-1)
                 if (read > 0) {
                     synchronized(sink) { sink.write(chunk, 0, read) }
                 } else if (read < 0) {
@@ -132,17 +81,15 @@ class AudioCapture {
     }
 
     /** Ends capture and scores the result for speech. Returns null if nothing was recorded. */
-    fun stop(): Clip? {
+    fun stop(): RecordedAudio? {
         if (!capturing) return null
         capturing = false
 
+        runCatching { recorder?.stop() }
         worker?.join(STOP_JOIN_MS)
         worker = null
 
-        recorder?.let { record ->
-            runCatching { record.stop() }.onFailure { Log.w(TAG, "AudioRecord.stop failed", it) }
-            record.release()
-        }
+        recorder?.release()
         recorder = null
 
         val pcm = synchronized(sink) { sink.toByteArray() }
@@ -158,7 +105,7 @@ class AudioCapture {
             "clip ${durationMs}ms voiced=${vad.voicedMs}ms peak=${vad.peak.toInt()} " +
                 "floor=${vad.floor.toInt()} threshold=${vad.threshold.toInt()}",
         )
-        return Clip(
+        return RecordedAudio(
             pcm = pcm,
             sampleRate = SAMPLE_RATE,
             durationMs = durationMs,
@@ -170,20 +117,14 @@ class AudioCapture {
 
     fun release() {
         capturing = false
+        runCatching { recorder?.stop() }
         worker?.join(STOP_JOIN_MS)
         worker = null
         recorder?.release()
         recorder = null
     }
 
-    /**
-     * Energy-based voice activity detection.
-     *
-     * The threshold is derived from the clip's own quiet frames rather than fixed, so a noisy room
-     * raises the bar instead of reading as continuous speech. This is not trying to be a real VAD -
-     * it only has to separate "the user said something" from "the user held the button in silence",
-     * and both failure directions land on a route that still does something sensible.
-     */
+    /** Energy-based voice activity detection. */
     private fun score(pcm: ByteArray): Vad {
         val samplesPerFrame = SAMPLE_RATE * FRAME_MS / 1000
         val frameBytes = samplesPerFrame * BYTES_PER_SAMPLE
@@ -240,37 +181,5 @@ class AudioCapture {
         /** Keeps a dead-silent room from making its own noise floor look like speech. */
         private const val ABSOLUTE_FLOOR = 350.0
 
-        private fun wavHeader(dataBytes: Int, sampleRate: Int): ByteArray {
-            val byteRate = sampleRate * BYTES_PER_SAMPLE
-            val header = ByteArray(44)
-            fun ascii(offset: Int, text: String) {
-                for (i in text.indices) header[offset + i] = text[i].code.toByte()
-            }
-            fun int32(offset: Int, value: Int) {
-                header[offset] = (value and 0xFF).toByte()
-                header[offset + 1] = (value shr 8 and 0xFF).toByte()
-                header[offset + 2] = (value shr 16 and 0xFF).toByte()
-                header[offset + 3] = (value shr 24 and 0xFF).toByte()
-            }
-            fun int16(offset: Int, value: Int) {
-                header[offset] = (value and 0xFF).toByte()
-                header[offset + 1] = (value shr 8 and 0xFF).toByte()
-            }
-
-            ascii(0, "RIFF")
-            int32(4, 36 + dataBytes)
-            ascii(8, "WAVE")
-            ascii(12, "fmt ")
-            int32(16, 16)          // PCM chunk size
-            int16(20, 1)           // PCM format
-            int16(22, 1)           // mono
-            int32(24, sampleRate)
-            int32(28, byteRate)
-            int16(32, BYTES_PER_SAMPLE)
-            int16(34, 16)          // bits per sample
-            ascii(36, "data")
-            int32(40, dataBytes)
-            return header
-        }
     }
 }

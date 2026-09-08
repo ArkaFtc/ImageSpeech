@@ -1,8 +1,10 @@
-package com.example.test_project
+package com.example.test_project.processing.model
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
+import com.example.test_project.contract.RecordedAudio
+import com.example.test_project.processing.ocr.LocalPPOCRv6Runner
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -12,8 +14,11 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.ThinkingConfig
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -21,21 +26,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.io.File
 
-/**
- * Gemma 4 E2B via LiteRT-LM.
- *
- * The engine is expensive to build and cheap to keep, so it is loaded once and held; conversations
- * are per-question and disposable. Everything the answer does not depend on goes in as the
- * conversation's opening user turn, which LiteRT-LM prefills at construction time - that is how a
- * turn opened during the hold has already paid for the image by the time the button comes up.
- *
- * The backend and the model file are coupled: a `-gpu` bundle carries GPU weights only and fails on
- * CPU with "TF_LITE_PREFILL_DECODE not found in the model", and the reverse holds too. Changing
- * [Backend] means changing [ModelStore.MODEL_NAME] to match.
- */
+/** Gemma 4 E2B via LiteRT-LM. */
 class GemmaSceneAnswerer(
     private val context: Context,
     private val modelStore: ModelStore,
@@ -173,7 +165,7 @@ private class GemmaTurn(
     private val dispatcher: CoroutineDispatcher,
 ) : SceneTurn {
 
-    override fun ask(audio: AudioCapture.Clip?, transcript: String?): Flow<String> = callbackFlow {
+    override fun ask(audio: RecordedAudio?, transcript: String?): Flow<String> = callbackFlow {
         val parts = buildList {
             // The clip carries emphasis that the transcript drops, and costs ~6 tokens per second.
             if (audio != null) add(Content.AudioBytes(audio.toWavBytes()))
@@ -194,7 +186,7 @@ private class GemmaTurn(
                 }
                 if (fresh.isEmpty()) return
                 seen.append(fresh)
-                trySend(fresh)
+                trySendBlocking(fresh)
             }
 
             override fun onDone() {
@@ -215,7 +207,7 @@ private class GemmaTurn(
         awaitClose {
             runCatching { conversation.cancelProcess() }
         }
-    }.flowOn(dispatcher)
+    }.buffer(1).flowOn(dispatcher)
 
     override fun close() {
         runCatching { conversation.cancelProcess() }
@@ -226,15 +218,5 @@ private class GemmaTurn(
         fun Message.text(): String =
             contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
 
-        fun AudioCapture.Clip.toWavBytes(): ByteArray {
-            val target = File.createTempFile("ask", ".wav")
-            return try {
-                writeWav(target)
-                target.readBytes()
-            } finally {
-                target.delete()
-            }
-        }
     }
 }
-

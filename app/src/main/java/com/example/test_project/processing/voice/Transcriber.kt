@@ -1,4 +1,4 @@
-package com.example.test_project
+package com.example.test_project.processing.voice
 
 import android.content.Context
 import android.content.Intent
@@ -9,24 +9,16 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.example.test_project.contract.RecordedAudio
+import java.io.File
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.File
-import kotlin.coroutines.resume
 
-/**
- * Turns a recorded clip into text, without touching the microphone.
- *
- * The obvious approach - let [SpeechRecognizer] listen live while the button is held - cannot work
- * here, because [AudioCapture] already owns the mic and the model needs that raw clip for its own
- * audio input. So recognition is fed the recorded file instead, via the API 33 audio-source extras.
- *
- * On devices without that path the transcript is simply null. Nothing breaks: [IntentRouter] falls
- * back to the VAD signal, and a press with speech in it reaches the model regardless. The transcript
- * is a convenience for routing, logging and display - never a dependency.
- */
+/** Turns a recorded clip into text, without touching the microphone. */
 class Transcriber(private val context: Context) {
 
     val isAvailable: Boolean
@@ -34,19 +26,18 @@ class Transcriber(private val context: Context) {
             SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
 
     /** Returns the best transcript for [clip], or null if recognition is unavailable or failed. */
-    suspend fun transcribe(clip: AudioCapture.Clip): String? {
-        if (!isAvailable) return null
+    suspend fun transcribe(clip: RecordedAudio): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || !isAvailable) return null
 
-        val wav = withContext(Dispatchers.IO) {
-            runCatching {
-                File.createTempFile("question", ".wav", context.cacheDir).also(clip::writeWav)
-            }.getOrNull()
-        } ?: return null
+        val pcmFile = runCatching {
+            File.createTempFile("question", ".pcm", context.cacheDir)
+        }.getOrNull() ?: return null
 
         return try {
-            withTimeoutOrNull(RECOGNITION_TIMEOUT_MS) { recognize(wav) }
+            withContext(Dispatchers.IO) { pcmFile.writeBytes(clip.pcm) }
+            withTimeoutOrNull(RECOGNITION_TIMEOUT_MS) { recognize(pcmFile, clip.sampleRate) }
         } finally {
-            withContext(Dispatchers.IO) { wav.delete() }
+            withContext(NonCancellable + Dispatchers.IO) { pcmFile.delete() }
         }
     }
 
@@ -54,7 +45,8 @@ class Transcriber(private val context: Context) {
      * [SpeechRecognizer] is main-thread-only for both construction and calls, and reports through a
      * listener, so it is bridged into a suspending call here.
      */
-    private suspend fun recognize(wav: File): String? = withContext(Dispatchers.Main) {
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private suspend fun recognize(pcmFile: File, sampleRate: Int): String? = withContext(Dispatchers.Main) {
         suspendCancellableCoroutine { continuation ->
             val recognizer = runCatching {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
@@ -65,7 +57,7 @@ class Transcriber(private val context: Context) {
             }
 
             val descriptor = runCatching {
-                ParcelFileDescriptor.open(wav, ParcelFileDescriptor.MODE_READ_ONLY)
+                ParcelFileDescriptor.open(pcmFile, ParcelFileDescriptor.MODE_READ_ONLY)
             }.getOrElse {
                 Log.w(TAG, "Could not open clip for recognition", it)
                 recognizer.destroy()
@@ -114,7 +106,7 @@ class Transcriber(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, descriptor)
                 putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
                 putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, android.media.AudioFormat.ENCODING_PCM_16BIT)
-                putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, AudioCapture.SAMPLE_RATE)
+                putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, sampleRate)
             }
 
             runCatching { recognizer.startListening(intent) }.onFailure {
