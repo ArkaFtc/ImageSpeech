@@ -11,6 +11,11 @@ android {
 
     defaultConfig {
         applicationId = "com.example.test_project"
+        // Side-by-side device validation when the installed app has a different signing key.
+        val readerBenchmark = providers.gradleProperty("readerBenchmark").orNull == "true"
+        if (readerBenchmark) applicationId = "com.example.test_project.reading"
+        manifestPlaceholders["appLabel"] = if (readerBenchmark) "ImageSpeech Reading Test" else "@string/app_name"
+        buildConfigField("boolean", "READER_BENCHMARK", readerBenchmark.toString())
         // 31 is the floor for the LiteRT-LM GPU backend; the file-source recognizer path in
         // Transcriber additionally needs 33 and is version-guarded rather than raising this again.
         minSdk = 31
@@ -20,6 +25,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    buildFeatures { buildConfig = true }
 
     buildTypes {
         release {
@@ -63,8 +69,12 @@ dependencies {
     // this one job, and cheap enough to run on every press. ML Kit text recognition was removed
     // rather than kept alongside it.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
+    implementation("org.opencv:opencv:4.12.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
     // First-run model download: survives process death, retries, and waits for Wi-Fi.
     implementation("androidx.work:work-runtime-ktx:2.10.0")

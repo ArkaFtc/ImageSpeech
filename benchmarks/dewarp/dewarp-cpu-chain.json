@@ -1,0 +1,73 @@
+{
+  "method": "dewarp-cpu",
+  "chain": true,
+  "runs": [
+    {
+      "index": 0,
+      "phase": "first",
+      "preprocessMs": 21.779385,
+      "inferenceMs": 1173.894538,
+      "postprocessMs": 1223.878269,
+      "dewarpMs": 2419.581575,
+      "ocrMs": 24669.11129,
+      "totalMs": 27088.697903,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "other prizes, b\nwork\nout\n80\nyou'll ever b\n11!\n4!×7!\nTh\ndoorstep. It's\nplayer closehis\nwho have all\nGufloss\nyou're so brilliant.)\n(Before\nwe\nwith\nquivering lips\nheard them\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\nnumbers. Next we'll see that the 4×2 on the botom\ncancels out the 8 on top (and we don't need that\n\"×1\" on the bottom either). We're left with...\n11×10×9\n3\nVnicase=11×10×3\nHow many choices has she got? It's \"C which is\n111\n4!×71\nbut for goodness sake DON'T reach for the\nLook! No bottom.\n95\n94\n大"
+    },
+    {
+      "index": 1,
+      "phase": "measured",
+      "preprocessMs": 2.4105,
+      "inferenceMs": 1115.032038,
+      "postprocessMs": 1001.259384,
+      "dewarpMs": 2118.732383,
+      "ocrMs": 24747.841982,
+      "totalMs": 26866.578635,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "other prizes, b\nwork\nout\n80\nyou'll ever b\n11!\n4!×7!\nTh\ndoorstep. It's\nplayer closehis\nwho have all\nGufloss\nyou're so brilliant.)\n(Before\nwe\nwith\nquivering lips\nheard them\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\nnumbers. Next we'll see that the 4×2 on the botom\ncancels out the 8 on top (and we don't need that\n\"×1\" on the bottom either). We're left with...\n11×10×9\n3\nVnicase=11×10×3\nHow many choices has she got? It's \"C which is\n111\n4!×71\nbut for goodness sake DON'T reach for the\nLook! No bottom.\n95\n94\n大"
+    },
+    {
+      "index": 2,
+      "phase": "measured",
+      "preprocessMs": 2.245616,
+      "inferenceMs": 1052.305307,
+      "postprocessMs": 1009.865345,
+      "dewarpMs": 2064.452614,
+      "ocrMs": 24536.369752,
+      "totalMs": 26600.826635,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "other prizes, b\nwork\nout\n80\nyou'll ever b\n11!\n4!×7!\nTh\ndoorstep. It's\nplayer closehis\nwho have all\nGufloss\nyou're so brilliant.)\n(Before\nwe\nwith\nquivering lips\nheard them\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\nnumbers. Next we'll see that the 4×2 on the botom\ncancels out the 8 on top (and we don't need that\n\"×1\" on the bottom either). We're left with...\n11×10×9\n3\nVnicase=11×10×3\nHow many choices has she got? It's \"C which is\n111\n4!×71\nbut for goodness sake DON'T reach for the\nLook! No bottom.\n95\n94\n大"
+    },
+    {
+      "index": 3,
+      "phase": "measured",
+      "preprocessMs": 2.340269,
+      "inferenceMs": 1172.149191,
+      "postprocessMs": 1003.251691,
+      "dewarpMs": 2177.777306,
+      "ocrMs": 24255.762021,
+      "totalMs": 26433.544558,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "other prizes, b\nwork\nout\n80\nyou'll ever b\n11!\n4!×7!\nTh\ndoorstep. It's\nplayer closehis\nwho have all\nGufloss\nyou're so brilliant.)\n(Before\nwe\nwith\nquivering lips\nheard them\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\nnumbers. Next we'll see that the 4×2 on the botom\ncancels out the 8 on top (and we don't need that\n\"×1\" on the bottom either). We're left with...\n11×10×9\n3\nVnicase=11×10×3\nHow many choices has she got? It's \"C which is\n111\n4!×71\nbut for goodness sake DON'T reach for the\nLook! No bottom.\n95\n94\n大"
+    }
+  ],
+  "width": 1100,
+  "height": 708,
+  "thermalStart": 0,
+  "dewarpInitMs": 447.123846,
+  "ocrInitMs": 480.006385,
+  "thermalEnd": 0,
+  "success": true
+}

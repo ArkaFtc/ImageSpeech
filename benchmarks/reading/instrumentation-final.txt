@@ -1,0 +1,8 @@
+
+com.example.test_project.ReadingLatencyTest:...
+
+Time: 164.387
+
+OK (3 tests)
+
+

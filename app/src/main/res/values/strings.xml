@@ -1,4 +1,15 @@
 <resources>
+    <string name="reading_mode">Reading mode</string>
+    <string-array name="reading_modes">
+        <item>Quick text — signs and labels</item>
+        <item>Document — one page</item>
+        <item>Book — two pages, spine centered</item>
+    </string-array>
+    <string name="reading_page">Reading page %1$d of %2$d…</string>
+    <string name="dewarp_fallback">Could not flatten this page. Reading the original photo.</string>
+    <string name="unclear_text">[Unclear text]</string>
+    <string name="uncertain_passage">Some words here may be incorrect.</string>
+    <string name="streaming_block_description">Page %1$d, passage %2$d. %3$s</string>
     <string name="stop_speaking">Stop and resume camera</string>
     <string name="app_name">ImageSpeech</string>
 

@@ -1,0 +1,73 @@
+{
+  "method": "baseline",
+  "chain": true,
+  "runs": [
+    {
+      "index": 0,
+      "phase": "first",
+      "preprocessMs": 0,
+      "inferenceMs": 0,
+      "postprocessMs": 0,
+      "dewarpMs": 0,
+      "ocrMs": 17118.236411,
+      "totalMs": 17118.242604,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "(How\nto\nwork o\namo\nalso the\nout\n80\n11! =\n群\n4!×7!\nTh\ne lovely\nteam who\nVeronica\nGume\nhavthe\neyes and leans forward\nwith\nUnfortunately Veronica's\nparents\nheard t\nthem\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\n]\n11×10×9\n3\n共\nleaving it as a 3 so all we've got now is:\nVeronica's choices=11×10×3\nLook! No bottom.\n94\n95\n大"
+    },
+    {
+      "index": 1,
+      "phase": "measured",
+      "preprocessMs": 0,
+      "inferenceMs": 0,
+      "postprocessMs": 0,
+      "dewarpMs": 0,
+      "ocrMs": 19641.449448,
+      "totalMs": 19641.45537,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "(How\nto\nwork o\namo\nalso the\nout\n80\n11! =\n群\n4!×7!\nTh\ne lovely\nteam who\nVeronica\nGume\nhavthe\neyes and leans forward\nwith\nUnfortunately Veronica's\nparents\nheard t\nthem\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\n]\n11×10×9\n3\n共\nleaving it as a 3 so all we've got now is:\nVeronica's choices=11×10×3\nLook! No bottom.\n94\n95\n大"
+    },
+    {
+      "index": 2,
+      "phase": "measured",
+      "preprocessMs": 0,
+      "inferenceMs": 0,
+      "postprocessMs": 0,
+      "dewarpMs": 0,
+      "ocrMs": 20630.779485,
+      "totalMs": 20630.786639,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "(How\nto\nwork o\namo\nalso the\nout\n80\n11! =\n群\n4!×7!\nTh\ne lovely\nteam who\nVeronica\nGume\nhavthe\neyes and leans forward\nwith\nUnfortunately Veronica's\nparents\nheard t\nthem\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\n]\n11×10×9\n3\n共\nleaving it as a 3 so all we've got now is:\nVeronica's choices=11×10×3\nLook! No bottom.\n94\n95\n大"
+    },
+    {
+      "index": 3,
+      "phase": "measured",
+      "preprocessMs": 0,
+      "inferenceMs": 0,
+      "postprocessMs": 0,
+      "dewarpMs": 0,
+      "ocrMs": 21936.645754,
+      "totalMs": 21936.653331,
+      "thermalStatus": 0,
+      "outputWidth": 1100,
+      "outputHeight": 708,
+      "regions": 35,
+      "text": "(How\nto\nwork o\namo\nalso the\nout\n80\n11! =\n群\n4!×7!\nTh\ne lovely\nteam who\nVeronica\nGume\nhavthe\neyes and leans forward\nwith\nUnfortunately Veronica's\nparents\nheard t\nthem\n11×10×9×8\n4×3×2×1\nWHICH FOUR DO IFANCY MOST?\n]\n11×10×9\n3\n共\nleaving it as a 3 so all we've got now is:\nVeronica's choices=11×10×3\nLook! No bottom.\n94\n95\n大"
+    }
+  ],
+  "width": 1100,
+  "height": 708,
+  "thermalStart": 0,
+  "dewarpInitMs": 0.028116,
+  "ocrInitMs": 1164.013346,
+  "thermalEnd": 0,
+  "success": true
+}

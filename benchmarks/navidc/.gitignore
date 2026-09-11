@@ -1,0 +1,16 @@
+*.gguf
+*.tar.gz
+llama-b*/
+
+*.zip
+llama-src/
+android-ndk-*/
+cmake-*/
+build-*/
+ninja.exe
+
+
+spirv-headers/
+spirv-install/
+
+vulkan-headers/

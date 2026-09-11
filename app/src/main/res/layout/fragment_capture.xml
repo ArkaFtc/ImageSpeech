@@ -24,6 +24,13 @@
             android:textSize="16sp"
             android:text="@string/capture_hint" />
 
+        <Spinner
+            android:id="@+id/readingMode"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#FFFFFF"
+            android:contentDescription="@string/reading_mode" />
+
         <!--
           Deliberately oversized. The target has to be findable without sight, and there is only one
           thing to do on this screen, so it gets the whole width and a thumb-sized height rather

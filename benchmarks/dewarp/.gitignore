@@ -1,0 +1,7 @@
+/build/
+/.gradle/
+/local.properties
+/python-deps/
+/downloads/*.tflite
+/downloads/*.onnx
+/downloads/*.npy

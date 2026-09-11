@@ -1,0 +1,23 @@
+exit_code=124 elapsed_seconds=181
+ggml_vulkan: WARNING: Instance extension VK_EXT_debug_utils not found.
+0.00.869.355 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.03.078.510 I cmn          init: llama threadpool init, n_threads = 4
+0.03.085.447 W load_hparams: Qwen-VL models require at minimum 1024 image tokens to function correctly on grounding tasks
+0.03.085.465 W load_hparams: if you encounter problems with accuracy, try adding --image-min-tokens 1024
+0.03.085.467 W load_hparams: more info: https://github.com/ggml-org/llama.cpp/issues/16842
+
+0.07.824.168 I mtmd_cli_context: chat template example:
+<|im_start|>system
+You are a helpful assistant<|im_end|>
+<|im_start|>user
+Hello<|im_end|>
+<|im_start|>assistant
+Hi there<|im_end|>
+<|im_start|>user
+How are you?<|im_end|>
+<|im_start|>assistant
+
+0.07.824.223 I main: loading model: NaviDC-OCR-Q4_K_M.gguf
+0.07.824.403 W WARN: This is an experimental CLI for testing multimodal capability.
+0.07.824.413 W       For normal use cases, please use the standard llama-cli
+0.11.293.436 I encoding mtmd batch, n_chunks = 1 (done = 1, total = 3)

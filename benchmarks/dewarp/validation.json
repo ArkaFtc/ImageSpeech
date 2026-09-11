@@ -1,0 +1,16 @@
+{
+  "uvdoc_android_vs_host_pixels": {
+    "mean_absolute_difference_0_255": 0.005933915425440849,
+    "max": 1.0
+  },
+  "dewarp_cpu_vs_gpu_grid": {
+    "correlation": 0.999996884200213,
+    "mae": 0.0010544178076088428,
+    "max": 0.00616300106048584
+  },
+  "dewarp_android_remap_vs_reference": {
+    "mean_absolute_difference_0_255": 0.00021828454031843863,
+    "max": 1.0,
+    "fraction_within_1": 1.0
+  }
+}

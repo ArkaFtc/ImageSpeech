@@ -18,9 +18,9 @@ import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.example.test_project.contract.ImageSpeechProcessor
 import com.example.test_project.capture.CaptureFragment
 import com.example.test_project.capture.ReviewFragment
+import com.example.test_project.contract.ImageSpeechProcessor
 import com.example.test_project.processing.LocalImageSpeechProcessor
 import com.example.test_project.processing.model.InferenceService
 import com.example.test_project.processing.model.ModelDownloadWorker
@@ -33,12 +33,13 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var localProcessor: LocalImageSpeechProcessor
-    val processor: ImageSpeechProcessor get() = localProcessor
+    val processor: ImageSpeechProcessor
+        get() = localProcessor
 
     /**
      * The model lane, owned by [InferenceService] so it survives the Activity going away. Null
-     * until the binding lands; every use treats that as "not available yet", which is the same
-     * path a device without the model takes.
+     * until the binding lands; every use treats that as "not available yet", which is the same path
+     * a device without the model takes.
      */
     private var sceneAnswerer: SceneAnswerer? = null
         private set
@@ -80,7 +81,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        startModelDownloadIfNeeded()
+        if (!BuildConfig.READER_BENCHMARK) startModelDownloadIfNeeded()
     }
 
     // ------------------------------------------------------------------ shared machinery
@@ -100,7 +101,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Returns to the camera. Same entry as system back, so there is one way back to the preview. */
+    /**
+     * Returns to the camera. Same entry as system back, so there is one way back to the preview.
+     */
     fun showCapture() {
         if (supportFragmentManager.isStateSaved) return
         supportFragmentManager.popBackStack(REVIEW, FragmentManager.POP_BACK_STACK_INCLUSIVE)
@@ -114,7 +117,15 @@ class MainActivity : AppCompatActivity() {
     private fun dismissStartupWhenReady() {
         lifecycleScope.launch {
             startupDetail.text = getString(R.string.startup_text)
-            localProcessor.awaitReady()
+            try {
+                localProcessor.awaitReady()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                android.util.Log.e(TAG, "Text reader initialization failed", error)
+                Toast.makeText(this@MainActivity, R.string.ocr_unavailable, Toast.LENGTH_LONG)
+                    .show()
+            }
             if (supportFragmentManager.findFragmentById(R.id.screen) is ReviewFragment) {
                 previewSettled.complete(Unit)
             }
@@ -126,24 +137,26 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ model plumbing
 
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            sceneAnswerer = (service as? InferenceService.LocalBinder)?.answerer
-        }
+    private val serviceConnection =
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                sceneAnswerer = (service as? InferenceService.LocalBinder)?.answerer
+            }
 
-        override fun onServiceDisconnected(name: ComponentName?) {
-            sceneAnswerer = null
+            override fun onServiceDisconnected(name: ComponentName?) {
+                sceneAnswerer = null
+            }
         }
-    }
 
     override fun onStart() {
         super.onStart()
         // Bound rather than started: the engine should outlive a rotation, not the app.
-        serviceBound = bindService(
-            Intent(this, InferenceService::class.java),
-            serviceConnection,
-            BIND_AUTO_CREATE,
-        )
+        serviceBound =
+            bindService(
+                Intent(this, InferenceService::class.java),
+                serviceConnection,
+                BIND_AUTO_CREATE,
+            )
     }
 
     /** Queues the one-off model download and narrates it. */

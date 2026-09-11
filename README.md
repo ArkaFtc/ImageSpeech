@@ -1,46 +1,51 @@
 # ImageSpeech
 
-An Android app that photographs text, records optional spoken questions, and reads the result aloud. Recognition and question answering run on the device after the initial model download.
+Android camera reader with on-device PPOCR, UVDoc page correction, optional spoken questions, and streaming text-to-speech.
 
-## Two parts
+## Reading
 
-- **`capture/`** owns the camera, sharpest-frame selection, press gestures, microphone recording, frozen-image review, and audio playback.
-- **`processing/`** owns OCR, transcription, question routing, the language model, and speech synthesis. Its `ocr/`, `model/`, and `voice/` packages group the implementation by responsibility.
+Choose **Quick text** for signs, **Document** for one page, or **Book** for a two-page spread. Tap to photograph and read; hold the capture button for at least 400 ms to record a question. Tap a recognized passage to replay it. Stop, New photo, and Back cancel processing and playback.
 
-The shared **`contract/`** package defines the boundary:
+Capture requests a 2560 x 1920 still with the closest supported resolution. A short sharpest-frame burst is the fallback if still capture fails. The photo remains frozen in review. Book mode locates the central gutter and reads the left page before the right. Each page is conservatively cropped, limited to a 2000-pixel working long edge, and corrected with UVDoc. Quick text skips correction. If correction fails, recognition continues on the prepared image.
+
+PPOCR detects rotated text regions and recognizes perspective-corrected line crops. Layout ordering groups columns and passages. Low-confidence recognition gets a second crop attempt; uncertain passages remain visible and are announced as uncertain. Recognition confidence is imperfect, and formulas, clipped text, illustrations, and complex tables still need care.
+
+## Architecture
+
+- `capture/`: camera, gestures, recording, review, playback.
+- `processing/ocr/`: page preparation, UVDoc, PPOCR, ordering, passage assembly.
+- `processing/voice/`: transcription, routing, bounded speech synthesis.
+- `processing/model/`: optional scene/question answering.
+- `contract/`: requests, text blocks, and progress/audio events.
 
 ```kotlin
-suspend fun process(request: ProcessingRequest): ProcessingResponse
-// Request: Bitmap + optional RecordedAudio (16 kHz mono PCM16)
-// Response: recognized text blocks + Flow<SpokenAudio>
-// Each SpokenAudio contains a sentence's text and complete WAV bytes.
+fun process(request: ProcessingRequest): Flow<ReadingEvent>
+// Status -> incremental Block and Audio events -> Complete
+// Request: bitmap, optional recorded PCM audio, reading mode.
+// Audio: passage text and a complete WAV clip.
 ```
 
-The response is an actual audio stream, not a stream of text for the UI to synthesize. Collecting it starts transcription, answer generation, and synthesis. Playback controls consumption; a one-segment buffer keeps synthesis ahead without allowing an entire answer to accumulate. Cancelling collection stops generation and synthesis. Temporary audio files are deleted after use.
+PPOCR produces recognized lines, not autoregressive output tokens. The first usable passage goes to TTS while OCR continues. Bounded coroutine buffers limit lookahead; playback runs alongside event collection. Cancellation propagates through recognition, synthesis, and playback, with native inference cancelled between calls. Only completed OCR is cached, keyed by photo identity and reading mode. Repeated questions reuse that result. Document context retains page order and uncertainty without presenting rectified coordinates as camera coordinates.
 
-These are package boundaries within one Android application, not separate processes or network services. `MainActivity` composes the processor and screens and binds the model service. Capture code does not invoke OCR, transcription, or model APIs.
+Reading bypasses the language model. Other spoken questions use the optional downloaded model; missing model support falls back to reading. The model download is managed by WorkManager. OCR and UVDoc are bundled. UVDoc's pinned revision and Apache license are in `app/src/main/assets/uvdoc-NOTICE.txt` and `uvdoc-LICENSE.txt`.
 
-## Controls
+## Build and test
 
-- **Tap the camera button for less than 400 ms:** capture an image and read its text. Recorded audio is discarded before creating the processing request.
-- **Hold for 400 ms or longer and speak:** capture an image and send the recorded question with it. The same cutoff applies to the review screen's Ask button.
-- **Tap a recognized block:** read just that block. **Read all** reads the whole photo.
-- **Stop and resume camera**, **New photo**, or system Back: cancel the answer and return to the live preview.
-- Cancelled touches discard the recording. Keyboard and accessibility click actions perform an image-only read.
-
-The camera selects the sharpest frame from a 300 ms burst, then unbinds the camera before opening review. The displayed photograph stays frozen through processing, speech, and after speech finishes until the user returns to capture. The same image can be reused for questions without rerunning OCR. Leaving the app stops recording and playback.
-
-Short read commands such as “read this” use verbatim OCR. Other spoken questions use the model. Missing model support falls back to reading; silent recordings receive a microphone or no-question notice.
-
-## Build and verification
-
-Requires Android 12+ and Java 21. On-device transcription from recorded PCM requires Android 13+; older devices can send the audio directly to the model. The language model needs a compatible GPU and sufficient memory/storage; OCR works independently.
+Requires Java 21 and Android 12+. Recorded-PCM on-device transcription requires Android 13+; model audio support depends on the device/runtime.
 
 ```powershell
 $env:JAVA_HOME = 'C:\Users\aruns\.jdks\jbr-21.0.11'
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-Unit tests cover reading order, text grouping, sentence chunking, intent routing, the exact 400 ms boundary, and PCM-to-WAV encoding.
+For a side-by-side device test without replacing an existing differently signed app:
 
-Physical-device verification is still needed for microphone sensitivity, on-device recognizer support, model audio understanding, audio latency, and interruption behavior. The app downloads the model once through WorkManager; download progress remains visible in the banner and system notification.
+```powershell
+.\gradlew.bat -PreaderBenchmark=true :app:assembleDebug :app:assembleDebugAndroidTest
+```
+
+This uses application ID `com.example.test_project.reading`, label **ImageSpeech Reading Test**, and suppresses automatic language-model download. Normal builds retain the original ID and download behavior. The benchmark activity is debug-only.
+
+Unit tests cover ordering, page splitting/gutter detection, uncertainty, early speech, bounded cancellation, question context, gestures, intent routing, sentence chunking, and WAV encoding. Android instrumentation covers warped-book streaming latency, a larger input workload, exact rotated-line recognition, and the shared real-camera capture configuration. Grant camera permission before running `CameraCaptureTest`.
+
+Benchmark details and limitations: [reading](benchmarks/reading/RESULTS.md), [dewarp comparisons](benchmarks/dewarp/RESULTS.md), [isolated PPOCR](benchmarks/ppocr/RESULTS.md). Device validation does not yet establish microphone sensitivity, full optional-model question quality, or accuracy across diverse documents.

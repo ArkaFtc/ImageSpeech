@@ -1,0 +1,33 @@
+
+Algorithm : SHA256
+Hash      : B5F2BFE2BDD9448429E3E82B51C789775D9B42F2403D082B00662EB77E401C5D
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\assets\pp_ocr_keys.txt
+
+Algorithm : SHA256
+Hash      : EB13B44B25BB36F89528B68720AF8A61D9CF381176107F465DB1757B65D086E1
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\assets\pp_ocrv6_det.onnx
+
+Algorithm : SHA256
+Hash      : 9C09ABF0957F7968C7586464B7397B84AD2387A0497A351AF40E9ACC71B673BA
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\assets\pp_ocrv6_rec.onnx
+
+Algorithm : SHA256
+Hash      : DE00D41C3F56ED37669F4E23A9642A2B48E1D8E06E5C6843176E383ADDF117B5
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\benchmarks\ppocr\src\main\assets\test.png
+
+Algorithm : SHA256
+Hash      : 76E0281C63962678F609377430E9619FA1923F15E15D6DC5FC642CE3A49CE8C5
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\java\com\example\test_project\processing\ocr\LocalPPOCRv6Runner.kt
+
+Algorithm : SHA256
+Hash      : CA851F71470FA0B5DCCF099B63B8A249EDB39DA9BDEFC83F23417011C1E17212
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\java\com\example\test_project\processing\ocr\ReadingOrder.kt
+
+Algorithm : SHA256
+Hash      : 5A16C2447BC47C59AD9D6869B625859F071DE7066480F9F5B31ED852E2C6EA45
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\java\com\example\test_project\processing\ocr\TextBlocks.kt
+
+Algorithm : SHA256
+Hash      : 6780CCB2C54833615E3085FE692679EFEDCB40BFBD0EC0C73E19AFBFD972E13B
+Path      : C:\Users\aruns\StudioProjects\ImageSpeech\app\src\main\java\com\example\test_project\contract\TextBlock.kt
+

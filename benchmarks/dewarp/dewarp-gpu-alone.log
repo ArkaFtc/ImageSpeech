@@ -1,0 +1,9 @@
+{"event":"initialized","config":{"method":"dewarp-gpu","chain":false,"runs":[],"width":1100,"height":708,"thermalStart":0,"dewarpInitMs":1671.240691,"ocrInitMs":0}}
+{"index":0,"phase":"first","preprocessMs":26.557039,"inferenceMs":436.597769,"postprocessMs":737.02723,"dewarpMs":1200.20323,"ocrMs":0,"totalMs":1200.205537,"thermalStatus":0,"outputWidth":1100,"outputHeight":708,"regions":0,"text":""}
+{"index":1,"phase":"measured","preprocessMs":1.651923,"inferenceMs":439.653692,"postprocessMs":657.505961,"dewarpMs":1098.833999,"ocrMs":0,"totalMs":1098.836499,"thermalStatus":0,"outputWidth":1100,"outputHeight":708,"regions":0,"text":""}
+{"index":2,"phase":"measured","preprocessMs":1.550346,"inferenceMs":433.526922,"postprocessMs":678.688808,"dewarpMs":1113.790653,"ocrMs":0,"totalMs":1113.793461,"thermalStatus":0,"outputWidth":1100,"outputHeight":708,"regions":0,"text":""}
+{"index":3,"phase":"measured","preprocessMs":1.592308,"inferenceMs":426.642654,"postprocessMs":670.1335,"dewarpMs":1098.394229,"ocrMs":0,"totalMs":1098.397306,"thermalStatus":0,"outputWidth":1100,"outputHeight":708,"regions":0,"text":""}
+{"index":4,"phase":"measured","preprocessMs":1.526846,"inferenceMs":432.118962,"postprocessMs":662.203115,"dewarpMs":1095.872077,"ocrMs":0,"totalMs":1095.874846,"thermalStatus":0,"outputWidth":1100,"outputHeight":708,"regions":0,"text":""}
+{"index":5,"phase":"measured","preprocessMs":1.779077,"inferenceMs":433.475038,"postprocessMs":662.922846,"dewarpMs":1098.201269,"ocrMs":0,"totalMs":1098.203807,"thermalStatus":0,"outputWidth":1100,"outputHeight":708,"regions":0,"text":""}
+Completed dewarp-gpu-alone; success=true
+

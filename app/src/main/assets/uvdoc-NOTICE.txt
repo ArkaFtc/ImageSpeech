@@ -1,0 +1,9 @@
+UVDoc ONNX document unwarping model
+Source: https://huggingface.co/PaddlePaddle/UVDoc_onnx
+Revision: 3bcf535371727d11e783101f79a504c68848aae3
+Original artifact: inference.onnx (bundled here as uvdoc.onnx)
+License: Apache-2.0, as declared by the publisher.
+Model card and reference: https://github.com/PaddlePaddle/PaddleOCR
+Original research: https://github.com/tanguymagne/UVDoc
+
+This model was not retrained or modified. It is executed locally with ONNX Runtime.

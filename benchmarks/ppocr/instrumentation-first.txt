@@ -1,0 +1,128 @@
+{"index":0,"phase":"first","elapsedMs":2048.456884,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":1,"phase":"warmup","elapsedMs":1939.662807,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":2,"phase":"warmup","elapsedMs":2035.883768,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":3,"phase":"measured","elapsedMs":2098.007845,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":4,"phase":"measured","elapsedMs":2081.582998,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":5,"phase":"measured","elapsedMs":2040.652537,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":6,"phase":"measured","elapsedMs":2057.550191,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":7,"phase":"measured","elapsedMs":2016.971652,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":8,"phase":"measured","elapsedMs":2046.328922,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":9,"phase":"measured","elapsedMs":2126.464806,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":10,"phase":"measured","elapsedMs":2108.297076,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":11,"phase":"measured","elapsedMs":2171.692114,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{"index":12,"phase":"measured","elapsedMs":2144.251075,"regions":3,"text":"OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827","thermalStatus":0}
+{
+  "thermalStart": 0,
+  "runtime": "onnxruntime-android:1.18.0; default CPU sessions",
+  "width": 640,
+  "height": 240,
+  "modelsAlreadyCached": false,
+  "initializationMs": 1248.819961,
+  "runs": [
+    {
+      "index": 0,
+      "phase": "first",
+      "elapsedMs": 2048.456884,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 1,
+      "phase": "warmup",
+      "elapsedMs": 1939.662807,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 2,
+      "phase": "warmup",
+      "elapsedMs": 2035.883768,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 3,
+      "phase": "measured",
+      "elapsedMs": 2098.007845,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 4,
+      "phase": "measured",
+      "elapsedMs": 2081.582998,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 5,
+      "phase": "measured",
+      "elapsedMs": 2040.652537,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 6,
+      "phase": "measured",
+      "elapsedMs": 2057.550191,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 7,
+      "phase": "measured",
+      "elapsedMs": 2016.971652,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 8,
+      "phase": "measured",
+      "elapsedMs": 2046.328922,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 9,
+      "phase": "measured",
+      "elapsedMs": 2126.464806,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 10,
+      "phase": "measured",
+      "elapsedMs": 2108.297076,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 11,
+      "phase": "measured",
+      "elapsedMs": 2171.692114,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    },
+    {
+      "index": 12,
+      "phase": "measured",
+      "elapsedMs": 2144.251075,
+      "regions": 3,
+      "text": "OFFLINE OCR TEST\nThe blue train arrives at 9:30.\nTicket number: 4827",
+      "thermalStatus": 0
+    }
+  ],
+  "thermalEnd": 0
+}

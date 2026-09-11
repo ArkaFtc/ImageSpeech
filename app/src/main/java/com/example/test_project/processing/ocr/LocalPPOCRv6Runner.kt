@@ -5,370 +5,330 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.SystemClock
 import android.util.Log
 import com.example.test_project.contract.TextBlock
 import com.example.test_project.contract.TextBox
-import java.io.File
 import java.nio.FloatBuffer
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.roundToInt
+import kotlin.math.*
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import org.opencv.android.Utils
+import org.opencv.core.*
+import org.opencv.imgproc.Imgproc
 
-/** PP-OCR pipeline: DBNet detection -> box extraction -> CRNN/CTC recognition. */
-class LocalPPOCRv6Runner(private val context: Context) {
-
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
+/**
+ * Detector → rotated quadrilaterals → rectified line crops → CTC recognition. DocumentReader
+ * serializes calls and owns the lifetime of these sessions.
+ */
+class LocalPPOCRv6Runner(context: Context) : AutoCloseable {
+    private val env = OrtEnvironment.getEnvironment()
     private val detSession: OrtSession
     private val recSession: OrtSession
-    private val characterDict = mutableListOf<String>()
-
-    private val detInputName: String
-    private val recInputName: String
+    private val dictionary =
+        listOf("blank") +
+            context.assets.open("pp_ocr_keys.txt").bufferedReader().use { it.readLines() } +
+            " "
 
     init {
-        // Copy models to cache to load via direct file path (bypasses Java Heap OOM)
-        val detModelPath = copyAssetToCache("pp_ocrv6_det.onnx")
-        detSession = env.createSession(detModelPath)
-
-        val recModelPath = copyAssetToCache("pp_ocrv6_rec.onnx")
-        recSession = env.createSession(recModelPath)
-
-        detInputName = detSession.inputNames.first()
-        recInputName = recSession.inputNames.first()
-
-        // Character set is ["blank"] + dict lines + [" "], matching the 18710 rec classes.
-        context.assets.open("pp_ocr_keys.txt").bufferedReader().useLines { lines ->
-            characterDict.add(BLANK_TOKEN)
-            lines.forEach { characterDict.add(it) }
-            characterDict.add(" ")
+        OpenCv.requireLoaded()
+        detSession = env.createSession(ModelAssets.path(context, "pp_ocrv6_det.onnx"))
+        try {
+            recSession = env.createSession(ModelAssets.path(context, "pp_ocrv6_rec.onnx"))
+        } catch (error: Throwable) {
+            detSession.close()
+            throw error
         }
-        Log.i(TAG, "Character set size: ${characterDict.size}")
     }
 
-    private fun copyAssetToCache(fileName: String): String {
-        val file = File(context.cacheDir, fileName)
-        if (!file.exists()) {
-            context.assets.open(fileName).use { input ->
-                file.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-        return file.absolutePath
-    }
-
-    /** Axis-aligned text box. */
-    private data class Box(
-        override val left: Int,
-        override val top: Int,
-        override val right: Int,
-        override val bottom: Int,
-    ) : TextBox {
-        val width get() = right - left
-        val height get() = bottom - top
-    }
-
-    /** One detected region in both of the shapes it is needed in. */
-    private data class Detection(val tight: Box, val padded: Box) : TextBox {
-        override val left get() = tight.left
-        override val top get() = tight.top
-        override val right get() = tight.right
-        override val bottom get() = tight.bottom
-    }
-
-    /** One recognized region: its text and where on the frame it sat. */
     data class Region(
         override val text: String,
         override val left: Int,
         override val top: Int,
         override val right: Int,
         override val bottom: Int,
+        val confidence: Float = 1f,
     ) : TextLine
 
-    /**
-     * Outcome of one OCR pass. [regions] holds the recognized text in reading order and is empty
-     * when nothing was read - in which case [message] explains why. Keeping the two apart lets the
-     * caller show status text without reading it aloud.
-     */
-    data class OcrResult(val regions: List<Region>, val message: String? = null) {
-        val hasText: Boolean get() = regions.isNotEmpty()
+    data class OcrResult(
+        val regions: List<Region>,
+        val message: String? = null,
+        val documentBlocks: List<TextBlock>? = null,
+    ) {
+        val hasText
+            get() = documentBlocks?.isNotEmpty() ?: regions.isNotEmpty()
 
-        /** Just the text, in reading order. */
-        val lines: List<String> get() = regions.map { it.text }
+        val lines
+            get() = documentBlocks?.map { it.text } ?: regions.map { it.text }
 
-        /**
-         * The text grouped the way it is laid out: paragraphs, headings, rows. This is what the
-         * review screen offers one at a time, so it is computed once per result rather than per
-         * redraw.
-         */
-        val blocks: List<TextBlock> by lazy { TextBlocks.group(regions) }
-
-        /** The recognized text, or the status message when there is none. */
-        val displayText: String
-            get() = if (hasText) lines.joinToString("\n") else (message ?: "No text detected")
+        val blocks: List<TextBlock> by lazy { documentBlocks ?: TextBlocks.group(regions) }
+        val displayText
+            get() = if (hasText) lines.joinToString("\n") else message ?: "No text detected"
     }
 
-    /** Runs detection + recognition, returning one region per detected block of text. */
-    fun runOcr(bitmap: Bitmap): OcrResult {
-        val boxes = detect(bitmap)
-        if (boxes.isEmpty()) return OcrResult(emptyList(), "No text detected")
+    private data class Detection(val points: Array<Point>) : TextBox {
+        override val left
+            get() = points.minOf { it.x }.roundToInt()
 
-        val regions = ArrayList<Region>(boxes.size)
-        for (detection in boxes) {
-            val padded = detection.padded
-            val crop = try {
-                Bitmap.createBitmap(bitmap, padded.left, padded.top, padded.width, padded.height)
-            } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "Skipping invalid crop $padded", e)
-                continue
-            }
-            val (text, confidence) = recognize(crop)
-            if (crop != bitmap) crop.recycle()
-            if (text.isNotBlank() && confidence >= MIN_REC_CONFIDENCE) {
-                // Report the tight box: dilated boxes overlap, which would mislead any consumer
-                // trying to reason about columns or layout from these coordinates.
-                val tight = detection.tight
-                regions.add(Region(text, tight.left, tight.top, tight.right, tight.bottom))
-            }
-        }
+        override val top
+            get() = points.minOf { it.y }.roundToInt()
 
-        return if (regions.isEmpty()) {
-            OcrResult(emptyList(), "No text recognized (${boxes.size} region(s) found)")
-        } else {
-            OcrResult(regions)
+        override val right
+            get() = points.maxOf { it.x }.roundToInt()
+
+        override val bottom
+            get() = points.maxOf { it.y }.roundToInt()
+    }
+
+    fun runOcr(bitmap: Bitmap): OcrResult =
+        OcrResult(
+            detect(bitmap, false)
+                .map { recognize(bitmap, it) }
+                .filter { it.text.isNotBlank() && it.confidence >= .7f }
+        )
+
+    /** Cooperatively cancellable between native inferences; each line arrives immediately. */
+    suspend fun readPage(bitmap: Bitmap, document: Boolean, emit: suspend (Region) -> Unit) {
+        currentCoroutineContext().ensureActive()
+        val started = SystemClock.elapsedRealtime()
+        val detections = detect(bitmap, document)
+        Log.i(
+            "ReadingTiming",
+            "detectionMs=${SystemClock.elapsedRealtime()-started} candidates=${detections.size} size=${bitmap.width}x${bitmap.height}",
+        )
+        for (detection in detections) {
+            currentCoroutineContext().ensureActive()
+            var region = recognize(bitmap, detection)
+            if (region.confidence < .7f) {
+                currentCoroutineContext().ensureActive()
+                val retry = recognize(bitmap, detection, 1.18)
+                if (retry.confidence > region.confidence) region = retry
+            }
+            emit(region)
         }
     }
 
-    // ---------------------------------------------------------------- detection
-
-    private fun detect(bitmap: Bitmap): List<Detection> {
-        // Preserve aspect ratio; DBNet needs both sides to be multiples of 32.
-        val scale = min(1.0f, DET_MAX_SIDE.toFloat() / max(bitmap.width, bitmap.height))
-        val detW = roundTo32(bitmap.width * scale)
-        val detH = roundTo32(bitmap.height * scale)
-
-        val resized = Bitmap.createScaledBitmap(bitmap, detW, detH, true)
-        val input = bitmapToTensor(resized, DET_MEAN, DET_STD)
-        if (resized != bitmap) resized.recycle()
-
-        val probMap: FloatArray
+    private fun detect(bitmap: Bitmap, document: Boolean): List<Detection> {
+        val scale = min(1.0, (if (document) 1280.0 else 960.0) / max(bitmap.width, bitmap.height))
+        val w = max(32, (bitmap.width * scale / 32).roundToInt() * 32)
+        val h = max(32, (bitmap.height * scale / 32).roundToInt() * 32)
+        val resized = Bitmap.createScaledBitmap(bitmap, w, h, true)
+        val values: FloatArray
         val mapW: Int
         val mapH: Int
-        input.use { tensor ->
-            detSession.run(mapOf(detInputName to tensor)).use { result ->
-                val output = result.get(0) as OnnxTensor
-                val shape = output.info.shape // [1, 1, H, W]
-                mapH = shape[shape.size - 2].toInt()
-                mapW = shape[shape.size - 1].toInt()
-                probMap = FloatArray(mapW * mapH)
-                output.floatBuffer.get(probMap, 0, probMap.size)
-            }
-        }
-
-        // Map detection-space boxes back onto the original bitmap.
-        val ratioX = bitmap.width.toFloat() / mapW
-        val ratioY = bitmap.height.toFloat() / mapH
-
-        return findBoxes(probMap, mapW, mapH)
-            .map { box ->
-                Box(
-                    left = (box.left * ratioX).roundToInt().coerceIn(0, bitmap.width - 1),
-                    top = (box.top * ratioY).roundToInt().coerceIn(0, bitmap.height - 1),
-                    right = (box.right * ratioX).roundToInt().coerceIn(1, bitmap.width),
-                    bottom = (box.bottom * ratioY).roundToInt().coerceIn(1, bitmap.height)
-                )
-            }
-            .filter { it.width >= MIN_BOX_SIZE && it.height >= MIN_BOX_SIZE }
-            .map { tight -> Detection(tight, unclip(tight, bitmap.width, bitmap.height)) }
-            .sortedInReadingOrder()
-    }
-
-    /**
-     * Binarizes the probability map and extracts one box per connected component
-     * (8-connectivity flood fill), then expands each box to undo the DBNet shrink.
-     */
-    private fun findBoxes(probMap: FloatArray, width: Int, height: Int): List<Box> {
-        val visited = BooleanArray(probMap.size)
-        val stack = IntArray(probMap.size)
-        val boxes = ArrayList<Box>()
-
-        for (start in probMap.indices) {
-            if (visited[start] || probMap[start] < BINARY_THRESHOLD) continue
-
-            var stackSize = 0
-            stack[stackSize++] = start
-            visited[start] = true
-
-            var minX = width
-            var maxX = 0
-            var minY = height
-            var maxY = 0
-            var pixelCount = 0
-            var scoreSum = 0f
-
-            while (stackSize > 0) {
-                val index = stack[--stackSize]
-                val x = index % width
-                val y = index / width
-
-                pixelCount++
-                scoreSum += probMap[index]
-                if (x < minX) minX = x
-                if (x > maxX) maxX = x
-                if (y < minY) minY = y
-                if (y > maxY) maxY = y
-
-                for (dy in -1..1) {
-                    val ny = y + dy
-                    if (ny < 0 || ny >= height) continue
-                    for (dx in -1..1) {
-                        val nx = x + dx
-                        if (nx < 0 || nx >= width) continue
-                        val neighbour = ny * width + nx
-                        if (!visited[neighbour] && probMap[neighbour] >= BINARY_THRESHOLD) {
-                            visited[neighbour] = true
-                            stack[stackSize++] = neighbour
-                        }
+        try {
+            tensor(resized, floatArrayOf(.485f, .456f, .406f), floatArrayOf(.229f, .224f, .225f))
+                .use { input ->
+                    detSession.run(mapOf(detSession.inputNames.first() to input)).use { result ->
+                        val output = result.get(0) as OnnxTensor
+                        mapH = output.info.shape[2].toInt()
+                        mapW = output.info.shape[3].toInt()
+                        values = FloatArray(mapW * mapH)
+                        output.floatBuffer.get(values)
                     }
                 }
-            }
-
-            if (pixelCount < MIN_COMPONENT_PIXELS) continue
-            if (scoreSum / pixelCount < BOX_SCORE_THRESHOLD) continue
-
-            boxes.add(Box(minX, minY, maxX + 1, maxY + 1))
+        } finally {
+            if (resized !== bitmap) resized.recycle()
         }
-        return boxes
+        val binary = Mat(mapH, mapW, CvType.CV_8UC1)
+        val probabilities = Mat(mapH, mapW, CvType.CV_32FC1)
+        val hierarchy = Mat()
+        val contours = mutableListOf<MatOfPoint>()
+        try {
+            binary.put(0, 0, ByteArray(values.size) { if (values[it] > .3f) 255.toByte() else 0 })
+            probabilities.put(0, 0, values)
+            Imgproc.findContours(
+                binary,
+                contours,
+                hierarchy,
+                Imgproc.RETR_LIST,
+                Imgproc.CHAIN_APPROX_SIMPLE,
+            )
+            val found = mutableListOf<Detection>()
+            for (contour in contours.take(1000)) {
+                val points = MatOfPoint2f(*contour.toArray())
+                try {
+                    val rect = Imgproc.minAreaRect(points)
+                    if (min(rect.size.width, rect.size.height) < 3) continue
+                    val mask = Mat.zeros(mapH, mapW, CvType.CV_8UC1)
+                    val score =
+                        try {
+                            Imgproc.drawContours(
+                                mask,
+                                listOf(contour),
+                                0,
+                                Scalar(255.0),
+                                Imgproc.FILLED,
+                            )
+                            Core.mean(probabilities, mask).`val`[0]
+                        } finally {
+                            mask.release()
+                        }
+                    if (score < .6) continue
+                    // Bounding rectangle of the polygon's rounded offset, in its rotated frame.
+                    val d = rect.size.area() * 1.5 / (2 * (rect.size.width + rect.size.height))
+                    rect.size.width += 2 * d
+                    rect.size.height += 2 * d
+                    val quad = Array(4) { Point() }
+                    rect.points(quad)
+                    found +=
+                        Detection(
+                            order(
+                                quad
+                                    .map {
+                                        Point(
+                                            (it.x * bitmap.width / mapW).coerceIn(
+                                                0.0,
+                                                bitmap.width - 1.0,
+                                            ),
+                                            (it.y * bitmap.height / mapH).coerceIn(
+                                                0.0,
+                                                bitmap.height - 1.0,
+                                            ),
+                                        )
+                                    }
+                                    .toTypedArray()
+                            )
+                        )
+                } finally {
+                    points.release()
+                }
+            }
+            return if (document) ColumnOrder.sort(found) else ReadingOrder.sort(found)
+        } finally {
+            contours.forEach { it.release() }
+            binary.release()
+            probabilities.release()
+            hierarchy.release()
+        }
     }
 
-    /**
-     * DBNet predicts a shrunk text region, so dilate the box back out using the standard
-     * Vatti offset distance (area * ratio / perimeter) applied to a rectangle.
-     */
-    private fun unclip(box: Box, width: Int, height: Int): Box {
-        val w = box.width.toFloat()
-        val h = box.height.toFloat()
-        val d = ((w * h * UNCLIP_RATIO) / (2f * (w + h))).roundToInt()
-        return Box(
-            left = (box.left - d).coerceIn(0, width - 1),
-            top = (box.top - d).coerceIn(0, height - 1),
-            right = (box.right + d).coerceIn(1, width),
-            bottom = (box.bottom + d).coerceIn(1, height)
+    private fun recognize(bitmap: Bitmap, detection: Detection, margin: Double = 1.0): Region {
+        val points = detection.points.map { Point(it.x, it.y) }.toTypedArray()
+        if (margin != 1.0) {
+            val cx = points.map { it.x }.average()
+            val cy = points.map { it.y }.average()
+            points.forEach {
+                it.x = cx + (it.x - cx) * margin
+                it.y = cy + (it.y - cy) * margin
+            }
+        }
+        fun distance(a: Point, b: Point) = hypot(a.x - b.x, a.y - b.y)
+        val width =
+            max(distance(points[0], points[1]), distance(points[3], points[2]))
+                .roundToInt()
+                .coerceAtLeast(2)
+        val height =
+            max(distance(points[0], points[3]), distance(points[1], points[2]))
+                .roundToInt()
+                .coerceAtLeast(2)
+        val source = Mat()
+        val crop = Mat()
+        val from = MatOfPoint2f(*points)
+        val to =
+            MatOfPoint2f(
+                Point(0.0, 0.0),
+                Point(width - 1.0, 0.0),
+                Point(width - 1.0, height - 1.0),
+                Point(0.0, height - 1.0),
+            )
+        val transform = Imgproc.getPerspectiveTransform(from, to)
+        val decoded: Pair<String, Float>
+        try {
+            Utils.bitmapToMat(bitmap, source)
+            Imgproc.warpPerspective(
+                source,
+                crop,
+                transform,
+                Size(width.toDouble(), height.toDouble()),
+                Imgproc.INTER_CUBIC,
+                Core.BORDER_REPLICATE,
+            )
+            if (height > width * 1.5) Core.rotate(crop, crop, Core.ROTATE_90_COUNTERCLOCKWISE)
+            val targetWidth = ceil(48.0 * crop.cols() / crop.rows()).toInt().coerceIn(16, 1600)
+            val resized = Mat()
+            try {
+                Imgproc.resize(crop, resized, Size(targetWidth.toDouble(), 48.0))
+                val normalized = Bitmap.createBitmap(targetWidth, 48, Bitmap.Config.ARGB_8888)
+                try {
+                    Utils.matToBitmap(resized, normalized)
+                    tensor(normalized, floatArrayOf(.5f, .5f, .5f), floatArrayOf(.5f, .5f, .5f))
+                        .use { input ->
+                            recSession.run(mapOf(recSession.inputNames.first() to input)).use {
+                                result ->
+                                val output = result.get(0) as OnnxTensor
+                                val shape = output.info.shape
+                                val scores = FloatArray(shape[1].toInt() * shape[2].toInt())
+                                output.floatBuffer.get(scores)
+                                decoded = decode(scores, shape[1].toInt(), shape[2].toInt())
+                            }
+                        }
+                } finally {
+                    normalized.recycle()
+                }
+            } finally {
+                resized.release()
+            }
+        } finally {
+            source.release()
+            crop.release()
+            from.release()
+            to.release()
+            transform.release()
+        }
+        return Region(
+            decoded.first,
+            detection.left,
+            detection.top,
+            detection.right,
+            detection.bottom,
+            decoded.second,
         )
     }
 
-    /** Top-to-bottom, then left-to-right for boxes sitting on roughly the same line. */
-    private fun List<Detection>.sortedInReadingOrder(): List<Detection> = ReadingOrder.sort(this)
-
-    // -------------------------------------------------------------- recognition
-
-    /** Recognizes one cropped text line, returning the text and its mean CTC confidence. */
-    private fun recognize(crop: Bitmap): Pair<String, Float> {
-        val targetWidth = (REC_HEIGHT.toFloat() * crop.width / crop.height)
-            .roundToInt()
-            .coerceIn(REC_MIN_WIDTH, REC_MAX_WIDTH)
-        val resized = Bitmap.createScaledBitmap(crop, targetWidth, REC_HEIGHT, true)
-        val input = bitmapToTensor(resized, REC_MEAN, REC_STD)
-        if (resized != crop) resized.recycle()
-
-        input.use { tensor ->
-            recSession.run(mapOf(recInputName to tensor)).use { result ->
-                val output = result.get(0) as OnnxTensor
-                val shape = output.info.shape // [1, T, numClasses]
-                return ctcGreedyDecode(output.floatBuffer, shape[1].toInt(), shape[2].toInt())
-            }
-        }
-    }
-
-    /** Greedy CTC: argmax per timestep, collapse repeats, drop blanks. */
-    private fun ctcGreedyDecode(
-        scores: FloatBuffer,
-        timeSteps: Int,
-        numClasses: Int
-    ): Pair<String, Float> {
+    private fun decode(scores: FloatArray, steps: Int, classes: Int): Pair<String, Float> {
         val text = StringBuilder()
-        var confidenceSum = 0f
-        var charCount = 0
-        var previousIndex = BLANK_INDEX
-
-        for (t in 0 until timeSteps) {
-            val offset = t * numClasses
-            var bestIndex = 0
-            var bestScore = scores.get(offset)
-            for (c in 1 until numClasses) {
-                val score = scores.get(offset + c)
-                if (score > bestScore) {
-                    bestScore = score
-                    bestIndex = c
-                }
+        var total = 0f
+        var count = 0
+        var previous = 0
+        for (t in 0 until steps) {
+            val offset = t * classes
+            var best = 0
+            for (c in 1 until classes) if (scores[offset + c] > scores[offset + best]) best = c
+            if (best != 0 && best != previous && best < dictionary.size) {
+                text.append(dictionary[best])
+                total += scores[offset + best]
+                count++
             }
-
-            if (bestIndex != BLANK_INDEX && bestIndex != previousIndex &&
-                bestIndex < characterDict.size
-            ) {
-                text.append(characterDict[bestIndex])
-                confidenceSum += bestScore
-                charCount++
-            }
-            previousIndex = bestIndex
+            previous = best
         }
-
-        val confidence = if (charCount > 0) confidenceSum / charCount else 0f
-        return text.toString() to confidence
+        return text.toString() to if (count == 0) 0f else total / count
     }
 
-    // ------------------------------------------------------------- preprocessing
-
-    /** Converts a bitmap to a normalized NCHW planar-RGB float tensor. */
-    private fun bitmapToTensor(bitmap: Bitmap, mean: FloatArray, std: FloatArray): OnnxTensor {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        val channelStride = width * height
-        val floatArray = FloatArray(3 * channelStride)
-
-        for (i in 0 until channelStride) {
-            val pixel = pixels[i]
-            floatArray[i] = (((pixel shr 16) and 0xFF) / 255f - mean[0]) / std[0]
-            floatArray[i + channelStride] = (((pixel shr 8) and 0xFF) / 255f - mean[1]) / std[1]
-            floatArray[i + channelStride * 2] = ((pixel and 0xFF) / 255f - mean[2]) / std[2]
-        }
-
-        val shape = longArrayOf(1, 3, height.toLong(), width.toLong())
-        return OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
+    /** Paddle's OpenCV inference path reads BGR. */
+    private fun tensor(bitmap: Bitmap, mean: FloatArray, std: FloatArray): OnnxTensor {
+        val n = bitmap.width * bitmap.height
+        val pixels = IntArray(n)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val data = FloatArray(n * 3)
+        for (i in 0 until n) for (c in 0..2) data[c * n + i] =
+            (((pixels[i] shr (c * 8)) and 255) / 255f - mean[c]) / std[c]
+        return OnnxTensor.createTensor(
+            env,
+            FloatBuffer.wrap(data),
+            longArrayOf(1, 3, bitmap.height.toLong(), bitmap.width.toLong()),
+        )
     }
 
-    private fun roundTo32(value: Float): Int = max(32, (value / 32f).roundToInt() * 32)
+    private fun order(points: Array<Point>): Array<Point> {
+        val sorted = points.sortedBy { it.x }
+        val left = sorted.take(2).sortedBy { it.y }
+        val right = sorted.takeLast(2).sortedBy { it.y }
+        return arrayOf(left[0], right[0], right[1], left[1])
+    }
 
-    fun close() {
+    override fun close() {
         detSession.close()
         recSession.close()
-    }
-
-    companion object {
-        private const val TAG = "LocalPPOCRv6Runner"
-
-        private const val BLANK_TOKEN = "blank"
-        private const val BLANK_INDEX = 0
-
-        // Detection
-        private const val DET_MAX_SIDE = 960
-        private const val BINARY_THRESHOLD = 0.3f
-        private const val BOX_SCORE_THRESHOLD = 0.7f
-        private const val UNCLIP_RATIO = 1.8f
-        private const val MIN_COMPONENT_PIXELS = 16
-        private const val MIN_BOX_SIZE = 4
-        private val DET_MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
-        private val DET_STD = floatArrayOf(0.229f, 0.224f, 0.225f)
-
-        // Recognition
-        private const val REC_HEIGHT = 48
-        private const val REC_MIN_WIDTH = 16
-        private const val REC_MAX_WIDTH = 1200
-        private const val MIN_REC_CONFIDENCE = 0.7f
-        private val REC_MEAN = floatArrayOf(0.5f, 0.5f, 0.5f)
-        private val REC_STD = floatArrayOf(0.5f, 0.5f, 0.5f)
     }
 }

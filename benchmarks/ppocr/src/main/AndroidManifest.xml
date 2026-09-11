@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Isolated PPOCR benchmark" android:allowBackup="false" />
+    <instrumentation android:name="bench.OcrBenchmark" android:targetPackage="com.example.ppocrbenchmark" android:label="PPOCR timing" />
+</manifest>

@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Isolated dewarp benchmark" android:allowBackup="false">
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+    </application>
+    <instrumentation android:name="bench.ChainBenchmark" android:targetPackage="com.example.dewarpbenchmark" />
+</manifest>

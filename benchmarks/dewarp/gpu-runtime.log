@@ -1,0 +1,21 @@
+--------- beginning of main
+I/tflite  (19627): Initialized TensorFlow Lite runtime.
+I/tflite  (26721): Initialized TensorFlow Lite runtime.
+I/litert  (27328): [litert_runtime_builtin.cc:63] Loaded runtime library and found kLiteRtRuntimeBuiltin.
+I/litert  (27328): [environment.cc:36] Creating LiteRT environment with options
+W/litert  (27328): [npu_registry.cc:34] NPU accelerator could not be loaded and registered: kLiteRtStatusErrorInvalidArgument.
+I/litert  (27328): [gpu_registry.cc:101] Attempting to load GPU accelerator(libLiteRtGpuAccelerator.so).
+I/litert  (27328): [gpu_registry.cc:101] Attempting to load GPU accelerator(libLiteRtClGlAccelerator.so).
+I/litert  (27328): [accelerator_registry.cc:54] RegisterAccelerator: ptr=0xb400007cc7a78080, name=LiteRT GPU
+I/litert  (27328): [gpu_registry.cc:109] Dynamically loaded GPU accelerator(libLiteRtClGlAccelerator.so) registered.
+I/litert  (27328): [accelerator_registry.cc:54] RegisterAccelerator: ptr=0xb400007cc7a783f0, name=CpuAccelerator
+I/litert  (27328): [cpu_registry.cc:75] XNNPACK CPU accelerator registered.
+I/litert  (27328): [compiled_model.cc:833] Flatbuffer model initialized directly from incoming litert model.
+I/tflite  (27328): Initialized TensorFlow Lite runtime.
+I/litert  (27328): [environment.cc:47] Adding options to the existing LiteRT environment
+I/tflite  (27328): Loaded OpenCL library with dlopen.
+I/litert  (27328): [gpu_environment.cc:220] Created OpenCL device from provided device id and platform id.
+I/litert  (27328): [gpu_environment.cc:283] Reusing provided EGL environment.
+I/litert  (27328): [gpu_environment.h:155] Created LiteRT GpuEnvironment.
+I/litert  (27328): [environment.cc:47] Adding options to the existing LiteRT environment
+I/tflite  (27328): Replacing 371 out of 371 node(s) with delegate (LITERT_CL) node, yielding 1 partitions for subgraph 0 (main).

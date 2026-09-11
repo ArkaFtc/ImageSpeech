@@ -11,12 +11,16 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -27,19 +31,24 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import com.example.test_project.MainActivity
 import com.example.test_project.R
+import com.example.test_project.contract.ReadingMode
 import com.example.test_project.contract.RecordedAudio
 import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Screen one: aim, then take the shot. */
 class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private val shots: ShotViewModel by activityViewModels()
-    private val host get() = requireActivity() as MainActivity
+    private val host
+        get() = requireActivity() as MainActivity
 
     private lateinit var status: TextView
     private lateinit var shutter: Button
@@ -63,37 +72,47 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     private var latestScore = 0.0
 
     /** Completes when the analysis pipeline delivers its first frame. */
-    @Volatile
-    private var firstFrame = CompletableDeferred<Unit>()
+    @Volatile private var firstFrame = CompletableDeferred<Unit>()
 
     private var captureJob: Job? = null
     private val audio = AudioCapture()
     private var pressedAt = 0L
     private var cameraProvider: ProcessCameraProvider? = null
+    private var stillCapture: ImageCapture? = null
+    private lateinit var modePicker: Spinner
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Read the granted state back rather than trusting the result map: only the permissions
-        // still missing are asked for, so anything already held is absent from it.
-        if (isGranted(Manifest.permission.CAMERA)) {
-            startCamera()
-        } else {
-            Toast.makeText(requireContext(), R.string.camera_required, Toast.LENGTH_LONG).show()
-            status.text = getString(R.string.camera_required)
-            // Nothing will ever arrive from the preview, so stop the startup cover waiting for it.
-            host.onPreviewSettled()
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+            // Read the granted state back rather than trusting the result map: only the permissions
+            // still missing are asked for, so anything already held is absent from it.
+            if (isGranted(Manifest.permission.CAMERA)) {
+                startCamera()
+            } else {
+                Toast.makeText(requireContext(), R.string.camera_required, Toast.LENGTH_LONG).show()
+                status.text = getString(R.string.camera_required)
+                // Nothing will ever arrive from the preview, so stop the startup cover waiting for
+                // it.
+                host.onPreviewSettled()
+            }
+            if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
+                Toast.makeText(requireContext(), R.string.mic_optional, Toast.LENGTH_LONG).show()
+            }
         }
-        if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
-            Toast.makeText(requireContext(), R.string.mic_optional, Toast.LENGTH_LONG).show()
-        }
-    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         acceptingFrames = true
         firstFrame = CompletableDeferred()
         status = view.findViewById(R.id.txtCaptureStatus)
         shutter = view.findViewById(R.id.btnShutter)
+        modePicker = view.findViewById(R.id.readingMode)
+        modePicker.adapter =
+            ArrayAdapter(
+                requireContext(),
+                android.R.layout.simple_spinner_dropdown_item,
+                resources.getStringArray(R.array.reading_modes),
+            )
+        val preferences = requireContext().getSharedPreferences("capture", 0)
+        modePicker.setSelection(preferences.getInt("readingMode", 1).coerceIn(0, 2))
         wireShutter()
 
         // Every missing permission, not just the camera. Gating the whole prompt on the camera
@@ -109,7 +128,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     override fun onStart() {
         super.onStart()
-        // Coming back from review means the last shot has been dealt with; the button is live again.
+        // Coming back from review means the last shot has been dealt with; the button is live
+        // again.
         shutter.isEnabled = true
         status.text = getString(R.string.capture_hint)
     }
@@ -147,26 +167,75 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         if (captureJob?.isActive == true) return
         shutter.isEnabled = false
 
-        captureJob = viewLifecycleOwner.lifecycleScope.launch {
-            setStatus(getString(R.string.capturing))
+        captureJob =
+            viewLifecycleOwner.lifecycleScope.launch {
+                setStatus(getString(R.string.capturing))
 
-            // A press can land before the camera has produced anything - on a cold start, or on
-            // the first press after resuming. Give the pipeline a moment to deliver rather than
-            // reporting failure to someone who has no way to see that the preview was not ready.
-            if (!hasAnyFrame()) {
-                withTimeoutOrNull(FIRST_FRAME_TIMEOUT_MS) { firstFrame.await() }
+                // A press can land before the camera has produced anything - on a cold start, or on
+                // the first press after resuming. Give the pipeline a moment to deliver rather than
+                // reporting failure to someone who has no way to see that the preview was not
+                // ready.
+                if (!hasAnyFrame()) {
+                    withTimeoutOrNull(FIRST_FRAME_TIMEOUT_MS) { firstFrame.await() }
+                }
+
+                val selectedMode = ReadingMode.entries[modePicker.selectedItemPosition]
+                requireContext()
+                    .getSharedPreferences("capture", 0)
+                    .edit()
+                    .putInt("readingMode", modePicker.selectedItemPosition)
+                    .apply()
+                val still =
+                    try {
+                        withTimeoutOrNull(8_000) { captureStill() }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Still capture failed; using sharp preview", error)
+                        null
+                    }
+                val captured = still?.let { it to Sharpness.score(it) } ?: runBurst()
+                if (captured == null) {
+                    fail(getString(R.string.no_frame))
+                    return@launch
+                }
+                val (frame, sharpness) = captured
+
+                cameraProvider?.unbindAll()
+                Log.i(
+                    "ReadingTiming",
+                    "captureSize=${frame.width}x${frame.height} still=${still != null}",
+                )
+                shots.hold(Shot(frame, sharpness, clip, selectedMode))
+                host.showReview()
             }
+    }
 
-            val captured = runBurst()
-            if (captured == null) {
-                fail(getString(R.string.no_frame))
-                return@launch
-            }
-            val (frame, sharpness) = captured
+    private suspend fun captureStill(): Bitmap? {
+        val camera = stillCapture ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            camera.takePicture(
+                analysisExecutor,
+                object : ImageCapture.OnImageCapturedCallback() {
+                    override fun onCaptureSuccess(image: ImageProxy) {
+                        try {
+                            val bitmap = rotate(image.toBitmap(), image.imageInfo.rotationDegrees)
+                            if (continuation.isActive)
+                                continuation.resume(bitmap) { _, value, _ -> value.recycle() }
+                            else bitmap.recycle()
+                        } catch (error: Exception) {
+                            if (continuation.isActive) continuation.resume(null)
+                        } finally {
+                            image.close()
+                        }
+                    }
 
-            cameraProvider?.unbindAll()
-            shots.hold(Shot(frame, sharpness, clip))
-            host.showReview()
+                    override fun onError(error: ImageCaptureException) {
+                        Log.w(TAG, "Still capture error", error)
+                        if (continuation.isActive) continuation.resume(null)
+                    }
+                },
+            )
         }
     }
 
@@ -178,7 +247,11 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
             bestScore = 0.0
         }
         collecting = true
-        try { delay(BURST_WINDOW_MS) } finally { collecting = false }
+        try {
+            delay(BURST_WINDOW_MS)
+        } finally {
+            collecting = false
+        }
 
         return synchronized(frameLock) {
             val winner = bestFrame ?: latestFrame
@@ -211,56 +284,73 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         val context = requireContext()
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
-        cameraProviderFuture.addListener({
-            // The listener is not lifecycle-aware, so the view may already be gone by now.
-            if (!isAdded || view == null) return@addListener
-            val cameraProvider = cameraProviderFuture.get()
-            this.cameraProvider = cameraProvider
+        cameraProviderFuture.addListener(
+            {
+                // The listener is not lifecycle-aware, so the view may already be gone by now.
+                if (!isAdded || view == null) return@addListener
+                val cameraProvider = cameraProviderFuture.get()
+                this.cameraProvider = cameraProvider
 
-            val viewFinder = requireView().findViewById<PreviewView>(R.id.viewFinder)
-            // COMPATIBLE backs the preview with a TextureView, which composites with sibling
-            // views normally. The default PERFORMANCE mode uses a SurfaceView in its own layer,
-            // which is the documented source of z-order trouble when views are drawn over the
-            // preview - and this screen draws two.
-            viewFinder.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-            val preview = Preview.Builder().build().also {
-                it.surfaceProvider = viewFinder.surfaceProvider
-            }
+                val viewFinder = requireView().findViewById<PreviewView>(R.id.viewFinder)
+                // COMPATIBLE backs the preview with a TextureView, which composites with sibling
+                // views normally. The default PERFORMANCE mode uses a SurfaceView in its own layer,
+                // which is the documented source of z-order trouble when views are drawn over the
+                // preview - and this screen draws two.
+                viewFinder.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                val preview =
+                    Preview.Builder().build().also {
+                        it.surfaceProvider = viewFinder.surfaceProvider
+                    }
 
-            // ImageAnalysis rather than ImageCapture: a rolling stream of frames gives the burst
-            // for free and skips shutter lag, so the sharpest of several frames can be chosen
-            // without asking the user to hold still for a second capture.
-            val analysis = ImageAnalysis.Builder()
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also { it.setAnalyzer(analysisExecutor, ::considerFrame) }
+                // Small analysis frames provide readiness/sharpness feedback; OCR uses a still
+                // photo.
+                val analysis =
+                    ImageAnalysis.Builder()
+                        .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also { it.setAnalyzer(analysisExecutor, ::considerFrame) }
+                val capture = PhotoCapture.create()
+                stillCapture = capture
 
-            // The back camera is the one that matters, but it is not always the one that exists -
-            // an emulator without it, or a device whose camera is held by something else, should
-            // still give the user a working app rather than a dead preview.
-            val selector = CAMERA_PREFERENCE.firstOrNull { candidate ->
-                runCatching { cameraProvider.hasCamera(candidate) }.getOrDefault(false)
-            }
-            if (selector == null) {
-                Log.e(TAG, "No usable camera on this device")
-                setStatus(getString(R.string.camera_required))
-                host.onPreviewSettled()
-                return@addListener
-            }
+                // The back camera is the one that matters, but it is not always the one that exists
+                // -
+                // an emulator without it, or a device whose camera is held by something else,
+                // should
+                // still give the user a working app rather than a dead preview.
+                val selector =
+                    CAMERA_PREFERENCE.firstOrNull { candidate ->
+                        runCatching { cameraProvider.hasCamera(candidate) }.getOrDefault(false)
+                    }
+                if (selector == null) {
+                    Log.e(TAG, "No usable camera on this device")
+                    setStatus(getString(R.string.camera_required))
+                    host.onPreviewSettled()
+                    return@addListener
+                }
 
-            try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(viewLifecycleOwner, selector, preview, analysis)
-            } catch (exc: Exception) {
-                Log.e(TAG, "Use case binding failed", exc)
-                setStatus(getString(R.string.camera_required))
-                host.onPreviewSettled()
-            }
-        }, ContextCompat.getMainExecutor(context))
+                try {
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        viewLifecycleOwner,
+                        selector,
+                        preview,
+                        analysis,
+                        capture,
+                    )
+                } catch (exc: Exception) {
+                    Log.e(TAG, "Use case binding failed", exc)
+                    setStatus(getString(R.string.camera_required))
+                    host.onPreviewSettled()
+                }
+            },
+            ContextCompat.getMainExecutor(context),
+        )
     }
 
-    /** Runs on the analysis executor for every frame; keeps the sharpest one seen while collecting. */
+    /**
+     * Runs on the analysis executor for every frame; keeps the sharpest one seen while collecting.
+     */
     private fun considerFrame(proxy: ImageProxy) {
         try {
             if (!acceptingFrames) return
@@ -317,6 +407,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         acceptingFrames = false
         cameraProvider?.unbindAll()
         cameraProvider = null
+        stillCapture = null
         audio.release()
         super.onDestroyView()
         captureJob?.cancel()
@@ -350,22 +441,22 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
          */
         private const val FIRST_FRAME_TIMEOUT_MS = 3_000L
 
-        private val CAMERA_PREFERENCE = listOf(
-            CameraSelector.DEFAULT_BACK_CAMERA,
-            CameraSelector.DEFAULT_FRONT_CAMERA,
-        )
+        private val CAMERA_PREFERENCE =
+            listOf(CameraSelector.DEFAULT_BACK_CAMERA, CameraSelector.DEFAULT_FRONT_CAMERA)
 
         /**
          * Notifications are a runtime permission from API 33. Without it the download and engine
          * notifications are silently dropped, so the work still runs but the user loses the only
          * visible sign that a 1.9 GB transfer is happening.
          */
-        private val REQUIRED_PERMISSIONS = buildList {
-            add(Manifest.permission.CAMERA)
-            add(Manifest.permission.RECORD_AUDIO)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }.toTypedArray()
+        private val REQUIRED_PERMISSIONS =
+            buildList {
+                    add(Manifest.permission.CAMERA)
+                    add(Manifest.permission.RECORD_AUDIO)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                .toTypedArray()
     }
 }

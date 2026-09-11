@@ -21,42 +21,61 @@ class SpeechSynthesizer(private val context: Context) {
     private val mutex = Mutex()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
     private var engine: TextToSpeech? = null
+    private var prepared = false
 
     init {
-        engine = TextToSpeech(context.applicationContext) { status ->
-            if (status == TextToSpeech.SUCCESS) ready.complete(Unit)
-            else ready.completeExceptionally(IllegalStateException("Speech engine unavailable"))
-        }
+        engine =
+            TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) ready.complete(Unit)
+                else ready.completeExceptionally(IllegalStateException("Speech engine unavailable"))
+            }
     }
 
-    suspend fun synthesize(text: String): SpokenAudio = mutex.withLock {
-        withTimeout(30_000) {
-            ready.await()
-            val tts = checkNotNull(engine)
-            val language = tts.setLanguage(Locale.getDefault())
-            if (language < 0) tts.setLanguage(Locale.US)
-            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+    suspend fun prepare() = mutex.withLock { withTimeout(30_000) { configure() } }
+
+    private suspend fun configure() {
+        ready.await()
+        val tts = checkNotNull(engine)
+        if (prepared) return
+        val language = tts.setLanguage(Locale.getDefault())
+        if (language < 0) tts.setLanguage(Locale.US)
+        tts.setOnUtteranceProgressListener(
+            object : UtteranceProgressListener() {
                 override fun onStart(id: String?) = Unit
-                override fun onDone(id: String?) { id?.let(pending::remove)?.complete(Unit) }
+
+                override fun onDone(id: String?) {
+                    id?.let(pending::remove)?.complete(Unit)
+                }
+
                 @Deprecated("Required by Android")
                 override fun onError(id: String?) {
-                    id?.let(pending::remove)?.completeExceptionally(IllegalStateException("Speech synthesis failed"))
+                    id?.let(pending::remove)
+                        ?.completeExceptionally(IllegalStateException("Speech synthesis failed"))
                 }
-            })
-            val file = File.createTempFile("speech", ".wav", context.cacheDir)
-            val done = CompletableDeferred<Unit>()
-            pending[file.name] = done
-            try {
-                check(tts.synthesizeToFile(text, null, file, file.name) == TextToSpeech.SUCCESS)
-                done.await()
-                SpokenAudio(text, withContext(Dispatchers.IO) { file.readBytes() })
-            } finally {
-                pending.remove(file.name)
-                tts.stop()
-                withContext(NonCancellable + Dispatchers.IO) { file.delete() }
+            }
+        )
+        prepared = true
+    }
+
+    suspend fun synthesize(text: String): SpokenAudio =
+        mutex.withLock {
+            withTimeout(30_000) {
+                configure()
+                val tts = checkNotNull(engine)
+                val file = File.createTempFile("speech", ".wav", context.cacheDir)
+                val done = CompletableDeferred<Unit>()
+                pending[file.name] = done
+                try {
+                    check(tts.synthesizeToFile(text, null, file, file.name) == TextToSpeech.SUCCESS)
+                    done.await()
+                    SpokenAudio(text, withContext(Dispatchers.IO) { file.readBytes() })
+                } finally {
+                    pending.remove(file.name)
+                    tts.stop()
+                    withContext(NonCancellable + Dispatchers.IO) { file.delete() }
+                }
             }
         }
-    }
 
     fun close() {
         pending.values.forEach { it.cancel() }

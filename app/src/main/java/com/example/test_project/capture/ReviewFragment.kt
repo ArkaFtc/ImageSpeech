@@ -16,18 +16,24 @@ import androidx.lifecycle.lifecycleScope
 import com.example.test_project.MainActivity
 import com.example.test_project.R
 import com.example.test_project.contract.ProcessingRequest
+import com.example.test_project.contract.ReadingEvent
 import com.example.test_project.contract.RecordedAudio
 import com.example.test_project.contract.SpokenAudio
+import com.example.test_project.contract.TextBlock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 /** Reviews a frozen capture and plays the processor's audio stream. */
 class ReviewFragment : Fragment(R.layout.fragment_review) {
     private val shots: ShotViewModel by activityViewModels()
-    private val host get() = requireActivity() as MainActivity
+    private val host
+        get() = requireActivity() as MainActivity
+
     private val recorder = AudioCapture()
     private var voiceJob: Job? = null
     private var pressedAt = 0L
@@ -36,7 +42,12 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private lateinit var player: AudioPlayer
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        val shot = shots.shot ?: run { host.showCapture(); return }
+        val shot =
+            shots.shot
+                ?: run {
+                    host.showCapture()
+                    return
+                }
         status = view.findViewById(R.id.txtReviewStatus)
         blockList = view.findViewById(R.id.blockList)
         player = AudioPlayer(requireContext())
@@ -59,28 +70,65 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private fun process(clip: RecordedAudio?, speak: Boolean = true) = startVoice {
         val shot = shots.shot ?: return@startVoice
         status.setText(R.string.reading_text)
-        val response = host.processor.process(ProcessingRequest(shot.frame, clip))
         blockList.removeAllViews()
-        response.blocks.forEachIndexed { index, block ->
-            val position: Int = index + 1
-            val description = getString(R.string.block_description, position, response.blocks.size, block.preview)
-            val button = (LayoutInflater.from(requireContext())
-                .inflate(R.layout.view_text_block, blockList, false) as Button).apply {
-                text = block.text
-                contentDescription = description
-                setOnClickListener {
-                    startVoice {
-                        setBackgroundResource(R.drawable.bg_text_block_active)
-                        try { play(host.processor.read(block.text)) }
-                        finally { setBackgroundResource(R.drawable.bg_text_block) }
-                    }
+        var count = 0
+        coroutineScope {
+            val playback = Channel<SpokenAudio>(1)
+            launch {
+                for (audio in playback) {
+                    status.text = audio.text
+                    player.play(audio)
                 }
             }
-            blockList.addView(button)
+            try {
+                host.processor.process(ProcessingRequest(shot.frame, clip, shot.mode)).collect {
+                    event ->
+                    when (event) {
+                        is ReadingEvent.Status -> status.text = event.text
+                        is ReadingEvent.Block -> addBlock(event.block, ++count)
+                        is ReadingEvent.Audio ->
+                            if (speak) {
+                                playback.send(event.audio)
+                            }
+                        is ReadingEvent.Complete ->
+                            status.text =
+                                resources.getQuantityString(
+                                    R.plurals.blocks_found,
+                                    event.blocks.size,
+                                    event.blocks.size,
+                                )
+                    }
+                }
+            } finally {
+                playback.close()
+            }
         }
-        status.text = resources.getQuantityString(R.plurals.blocks_found,
-            response.blocks.size, response.blocks.size)
-        if (speak) play(response.audio)
+    }
+
+    private fun addBlock(block: TextBlock, position: Int) {
+        val description =
+            getString(R.string.streaming_block_description, block.page, position, block.preview)
+        val button =
+            (LayoutInflater.from(requireContext())
+                    .inflate(R.layout.view_text_block, blockList, false) as Button)
+                .apply {
+                    text =
+                        if (block.uncertain)
+                            getString(R.string.uncertain_passage) + "\n" + block.text
+                        else block.text
+                    contentDescription = description
+                    setOnClickListener {
+                        startVoice {
+                            setBackgroundResource(R.drawable.bg_text_block_active)
+                            try {
+                                play(host.processor.read(text.toString()))
+                            } finally {
+                                setBackgroundResource(R.drawable.bg_text_block)
+                            }
+                        }
+                    }
+                }
+        blockList.addView(button)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -116,12 +164,17 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private fun startVoice(work: suspend () -> Unit) {
         val previous = voiceJob
         stopVoice()
-        voiceJob = viewLifecycleOwner.lifecycleScope.launch {
-            previous?.cancelAndJoin()
-            try { work() }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (error: Exception) { status.text = error.message ?: getString(R.string.tts_unavailable) }
-        }
+        voiceJob =
+            viewLifecycleOwner.lifecycleScope.launch {
+                previous?.cancelAndJoin()
+                try {
+                    work()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status.text = error.message ?: getString(R.string.tts_unavailable)
+                }
+            }
     }
 
     private suspend fun play(stream: Flow<SpokenAudio>) {

@@ -1,0 +1,17 @@
+-- llama.cpp version: 0.4.0-dev
+CMAKE_BUILD_TYPE=Release
+-- Setting GGML_NATIVE_DEFAULT to OFF
+-- Warning: ccache not found - consider installing it for faster compilation or disable this warning with GGML_CCACHE=OFF
+-- CMAKE_SYSTEM_PROCESSOR: aarch64
+-- GGML_SYSTEM_ARCH: ARM
+-- Including CPU backend
+-- ARM detected
+-- Checking for ARM features using flags:
+--   -march=armv8.2-a+dotprod
+-- Adding CPU backend variant ggml-cpu: -march=armv8.2-a+dotprod 
+-- ggml version: 0.23.0
+-- ggml commit:  f3f1a8f
+-- Generating embedded license file for target: llama-app
+-- Configuring done (0.7s)
+-- Generating done (0.3s)
+-- Build files have been written to: C:/Users/aruns/StudioProjects/ImageSpeech/benchmarks/navidc/build-cpu
