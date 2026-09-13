@@ -5,6 +5,7 @@
   neither of them is a reason to interrupt what the user is doing.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mainRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#121418">
@@ -15,52 +16,8 @@
         android:layout_height="match_parent" />
 
     <!--
-      Model download: a banner, not a blocker. Reading text works perfectly well while the weights
-      are still arriving, so this reports progress without taking the camera away.
-    -->
-    <LinearLayout
-        android:id="@+id/downloadBanner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:orientation="vertical"
-        android:background="#E6101418"
-        android:padding="16dp"
-        android:elevation="4dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/txtDownloadTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:text="@string/download_title" />
-
-        <TextView
-            android:id="@+id/txtDownloadDetail"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="#B9C0CC"
-            android:textSize="13sp"
-            android:text="@string/download_banner_detail" />
-
-        <ProgressBar
-            android:id="@+id/barDownload"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:max="100"
-            android:progress="0" />
-
-    </LinearLayout>
-
-    <!--
       Startup: a full cover, because there is genuinely nothing to show yet. The camera has not
-      produced a frame and the OCR models are still being opened, so the alternative is the black
+      produced a frame, so the alternative is the black
       rectangle of an unbound PreviewView.
     -->
     <LinearLayout

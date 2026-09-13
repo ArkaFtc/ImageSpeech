@@ -18,9 +18,13 @@ import kotlinx.coroutines.withContext
 
 /** Playback is capture-side: cancelling the collector immediately releases the speaker. */
 class AudioPlayer(private val context: Context) {
+    @Volatile private var active: MediaPlayer? = null
+    private var lastReadingStartedAtMs: Long? = null
+
     suspend fun play(audio: SpokenAudio, onStarted: () -> Unit = {}) {
         val file = File.createTempFile("playback", ".wav", context.cacheDir)
         val player = MediaPlayer()
+        active = player
         val manager = context.getSystemService(AudioManager::class.java)
         var focus: AudioFocusRequest? = null
         try {
@@ -54,9 +58,12 @@ class AudioPlayer(private val context: Context) {
                 player.setOnPreparedListener {
                     it.start()
                     audio.readingStartedAtMs?.let { started ->
+                        val first = lastReadingStartedAtMs != started
+                        lastReadingStartedAtMs = started
                         Log.i(
                             "ReadingTiming",
-                            "playbackStartMs=${SystemClock.elapsedRealtime()-started}",
+                            "${if (first) "firstUsefulSpokenSentenceMs" else "passagePlaybackStartMs"}=" +
+                                "${SystemClock.elapsedRealtime()-started}",
                         )
                     }
                     onStarted()
@@ -74,9 +81,15 @@ class AudioPlayer(private val context: Context) {
                 player.prepareAsync()
             }
         } finally {
+            if (active === player) active = null
             player.release()
             focus?.let(manager::abandonAudioFocusRequest)
             withContext(NonCancellable + Dispatchers.IO) { file.delete() }
         }
+    }
+
+    fun stop() {
+        runCatching { active?.stop() }
+        active = null
     }
 }

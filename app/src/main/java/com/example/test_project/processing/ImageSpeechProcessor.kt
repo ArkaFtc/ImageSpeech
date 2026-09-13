@@ -6,7 +6,6 @@ import android.os.SystemClock
 import android.util.Log
 import com.example.test_project.R
 import com.example.test_project.contract.*
-import com.example.test_project.processing.model.SceneAnswerer
 import com.example.test_project.processing.ocr.DocumentReader
 import com.example.test_project.processing.ocr.LocalPPOCRv6Runner
 import com.example.test_project.processing.voice.*
@@ -18,13 +17,13 @@ import kotlinx.coroutines.sync.withLock
 /** One structured session feeds UI passages and speech concurrently. Caches only complete reads. */
 class LocalImageSpeechProcessor(
     private val context: Context,
-    private val answerer: () -> SceneAnswerer?,
+    private val voice: SpeechSynthesizer = SpeechSynthesizer(context),
+    private val ownsVoice: Boolean = true,
 ) : ImageSpeechProcessor {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Mutex()
-    private val engine = scope.async { DocumentReader(context.applicationContext) }
-    private val transcriber = Transcriber(context)
-    private val voice = SpeechSynthesizer(context)
+    // LAZY is load-bearing: a saved Gemini key must bypass OCR initialization entirely.
+    private val engine = scope.async(start = CoroutineStart.LAZY) { DocumentReader(context.applicationContext) }
     private var cached: Cache? = null
 
     private data class Cache(
@@ -52,31 +51,12 @@ class LocalImageSpeechProcessor(
                 val blocks = mutableListOf<TextBlock>()
                 val passages =
                     flow {
-                            val clip = request.audio
-                            val transcript =
-                                if (clip?.hasSpeech == true) transcriber.transcribe(clip) else null
-                            val readAloud =
-                                clip == null ||
-                                    (clip.hasSpeech &&
-                                        IntentRouter.route(
-                                                IntentRouter.TAP_THRESHOLD_MS,
-                                                true,
-                                                transcript,
-                                            )
-                                            .route == IntentRouter.Route.READ_VERBATIM)
                             suspend fun publish(block: TextBlock) {
                                 blocks += block
                                 send(ReadingEvent.Block(block))
-                                if (readAloud) {
-                                    val prefix =
-                                        if (block.uncertain)
-                                            context.getString(R.string.uncertain_passage) + " "
-                                        else ""
-                                    emit(prefix + block.lines.joinToString(" "))
-                                }
+                                emit(block.lines.joinToString(" "))
                             }
-                            val recognized =
-                                lock.withLock {
+                            lock.withLock {
                                     val previous =
                                         cached?.takeIf {
                                             it.image === request.image && it.mode == request.mode
@@ -108,37 +88,7 @@ class LocalImageSpeechProcessor(
                                 "ReadingTiming",
                                 "ocrCompleteMs=${SystemClock.elapsedRealtime()-started} blocks=${blocks.size}",
                             )
-                            if (readAloud) {
-                                if (blocks.isEmpty())
-                                    emit(context.getString(R.string.no_text_found))
-                            } else if (clip?.hasSpeech != true) {
-                                emit(
-                                    context.getString(
-                                        if (clip?.isSilent == true) R.string.mic_silent
-                                        else R.string.nothing_heard
-                                    )
-                                )
-                            } else {
-                                // Questions retain the full-image/full-OCR context; verbatim
-                                // reading bypasses the LLM.
-                                val turn =
-                                    answerer()
-                                        ?.takeIf { it.isAvailable }
-                                        ?.beginTurn(request.image, recognized)
-                                if (turn == null) {
-                                    emit(context.getString(R.string.model_unavailable))
-                                    blocks.forEach { emit(it.text) }
-                                } else
-                                    try {
-                                        val chunker = SentenceChunker()
-                                        turn.ask(clip, transcript).collect { token ->
-                                            chunker.offer(token).forEach { emit(it) }
-                                        }
-                                        chunker.flush()?.let { emit(it) }
-                                    } finally {
-                                        turn.close()
-                                    }
-                            }
+                            if (blocks.isEmpty()) emit(context.getString(R.string.no_text_found))
                         }
                         .flowOn(Dispatchers.Default)
                 streamingSpeech(passages) { voice.synthesize(it) }
@@ -166,7 +116,7 @@ class LocalImageSpeechProcessor(
     }
 
     fun close() {
-        voice.close()
+        if (ownsVoice) voice.close()
         scope.launch {
             try {
                 lock.withLock {

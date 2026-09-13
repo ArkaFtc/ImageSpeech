@@ -16,8 +16,6 @@ android {
         if (readerBenchmark) applicationId = "com.example.test_project.reading"
         manifestPlaceholders["appLabel"] = if (readerBenchmark) "ImageSpeech Reading Test" else "@string/app_name"
         buildConfigField("boolean", "READER_BENCHMARK", readerBenchmark.toString())
-        // 31 is the floor for the LiteRT-LM GPU backend; the file-source recognizer path in
-        // Transcriber additionally needs 33 and is version-guarded rather than raising this again.
         minSdk = 31
         targetSdk = 36
         versionCode = 1
@@ -42,8 +40,6 @@ android {
     }
 }
 
-// Kotlin 2.3 removed the string-valued kotlinOptions DSL in favour of this one. The bump was
-// forced by litertlm-android, whose class metadata is written at version 2.3.
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
@@ -72,11 +68,11 @@ dependencies {
     implementation("org.opencv:opencv:4.12.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.11.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
-    // First-run model download: survives process death, retries, and waits for Wi-Fi.
-    implementation("androidx.work:work-runtime-ktx:2.10.0")
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")
 }

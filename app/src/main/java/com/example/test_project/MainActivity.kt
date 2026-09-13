@@ -1,56 +1,36 @@
 package com.example.test_project
 
-import android.content.ComponentName
-import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.IBinder
+import android.text.InputType
+import android.view.LayoutInflater
 import android.view.View
-import android.widget.ProgressBar
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.commit
+import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import com.example.test_project.capture.CaptureFragment
 import com.example.test_project.capture.ReviewFragment
 import com.example.test_project.contract.ImageSpeechProcessor
-import com.example.test_project.processing.LocalImageSpeechProcessor
-import com.example.test_project.processing.model.InferenceService
-import com.example.test_project.processing.model.ModelDownloadWorker
-import com.example.test_project.processing.model.ModelStore
-import com.example.test_project.processing.model.SceneAnswerer
+import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 
 /** Two screens: take the photo, then work through what was in it. */
 class MainActivity : AppCompatActivity() {
-
-    private lateinit var localProcessor: LocalImageSpeechProcessor
+    private val state: ImageSpeechViewModel by viewModels()
     val processor: ImageSpeechProcessor
-        get() = localProcessor
-
-    /**
-     * The model lane, owned by [InferenceService] so it survives the Activity going away. Null
-     * until the binding lands; every use treats that as "not available yet", which is the same path
-     * a device without the model takes.
-     */
-    private var sceneAnswerer: SceneAnswerer? = null
-        private set
-
-    private var serviceBound = false
+        get() = state.processor
+    val processorRouter get() = state.processor
+    val hasGeminiKey: Boolean get() = state.keyStore.get() != null
 
     private lateinit var startupOverlay: View
     private lateinit var startupDetail: TextView
-    private lateinit var downloadBanner: View
-    private lateinit var downloadBar: ProgressBar
-    private lateinit var downloadDetail: TextView
 
     /**
      * Completes when the camera screen has something to show - a first frame, or the news that
@@ -63,15 +43,20 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        localProcessor = LocalImageSpeechProcessor(applicationContext) { sceneAnswerer }
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.mainRoot)) { root, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            root.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
 
         startupOverlay = findViewById(R.id.startupOverlay)
         startupDetail = findViewById(R.id.txtStartupDetail)
-        downloadBanner = findViewById(R.id.downloadBanner)
-        downloadBar = findViewById(R.id.barDownload)
-        downloadDetail = findViewById(R.id.txtDownloadDetail)
-        insetDownloadBanner()
+        removeLegacyGemmaFiles()
 
+        lifecycleScope.launch {
+            runCatching { state.processor.prepareSpeech() }
+                .onFailure { android.util.Log.w(TAG, "Speech not ready", it) }
+        }
         dismissStartupWhenReady()
 
         if (savedInstanceState == null) {
@@ -81,7 +66,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (!BuildConfig.READER_BENCHMARK) startModelDownloadIfNeeded()
     }
 
     // ------------------------------------------------------------------ shared machinery
@@ -116,16 +100,6 @@ class MainActivity : AppCompatActivity() {
      */
     private fun dismissStartupWhenReady() {
         lifecycleScope.launch {
-            startupDetail.text = getString(R.string.startup_text)
-            try {
-                localProcessor.awaitReady()
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                android.util.Log.e(TAG, "Text reader initialization failed", error)
-                Toast.makeText(this@MainActivity, R.string.ocr_unavailable, Toast.LENGTH_LONG)
-                    .show()
-            }
             if (supportFragmentManager.findFragmentById(R.id.screen) is ReviewFragment) {
                 previewSettled.complete(Unit)
             }
@@ -135,90 +109,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ------------------------------------------------------------------ model plumbing
-
-    private val serviceConnection =
-        object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-                sceneAnswerer = (service as? InferenceService.LocalBinder)?.answerer
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {
-                sceneAnswerer = null
-            }
+    fun showGeminiSettings() {
+        val content = LayoutInflater.from(this).inflate(R.layout.dialog_gemini_settings, null)
+        val key = content.findViewById<EditText>(R.id.editApiKey)
+        val show = content.findViewById<CheckBox>(R.id.checkShowKey)
+        val status = content.findViewById<TextView>(R.id.txtProcessingStatus)
+        key.setText(state.keyStore.get().orEmpty())
+        status.setText(if (hasGeminiKey) R.string.gemini_processing else R.string.local_processing)
+        show.setOnCheckedChangeListener { _, checked ->
+            key.inputType = InputType.TYPE_CLASS_TEXT or
+                if (checked) InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else InputType.TYPE_TEXT_VARIATION_PASSWORD
+            key.setSelection(key.text.length)
         }
-
-    override fun onStart() {
-        super.onStart()
-        // Bound rather than started: the engine should outlive a rotation, not the app.
-        serviceBound =
-            bindService(
-                Intent(this, InferenceService::class.java),
-                serviceConnection,
-                BIND_AUTO_CREATE,
-            )
-    }
-
-    /** Queues the one-off model download and narrates it. */
-    private fun startModelDownloadIfNeeded() {
-        if (ModelStore(this).isPresent) return
-        ModelDownloadWorker.enqueue(this)
-
-        var announcedStart = false
-        WorkManager.getInstance(this)
-            .getWorkInfosForUniqueWorkLiveData(ModelDownloadWorker.WORK_NAME)
-            .observe(this) { infos ->
-                val info = infos?.firstOrNull() ?: return@observe
-                val percent = ModelDownloadWorker.progress(info)
-
-                if (percent != null) {
-                    downloadBanner.visibility = View.VISIBLE
-                    downloadBar.progress = percent
-                    downloadDetail.text = getString(R.string.download_banner_progress, percent)
-                    if (!announcedStart) {
-                        announcedStart = true
-                    }
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.processing_settings)
+            .setView(content)
+            .setPositiveButton(R.string.save, null)
+            .setNeutralButton(R.string.clear, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            fun applyValue(value: String) {
+                if (state.keyStore.set(value)) {
+                    (supportFragmentManager.findFragmentById(R.id.screen) as? ReviewFragment)
+                        ?.cancelForSettingsChange()
+                    state.processor.resetConversation()
+                    state.cancelProcessing(clearState = true)
                 }
-
-                if (info.state.isFinished) {
-                    downloadBanner.visibility = View.GONE
-                    if (info.state == WorkInfo.State.SUCCEEDED && announcedStart) {
-                        Toast.makeText(this, R.string.download_finished, Toast.LENGTH_LONG).show()
-                    }
-                }
+                dialog.dismiss()
             }
-    }
-
-    /** The banner sits at the very top, so it has to make room for the status bar itself. */
-    private fun insetDownloadBanner() {
-        val basePadding = downloadBanner.paddingTop
-        ViewCompat.setOnApplyWindowInsetsListener(downloadBanner) { view, insets ->
-            val statusBar = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-            view.updatePadding(top = basePadding + statusBar)
-            insets
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener { applyValue(key.text.toString()) }
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL)
+                .setOnClickListener { applyValue("") }
         }
+        dialog.show()
     }
 
-    // ------------------------------------------------------------------ lifecycle
-
-    override fun onStop() {
-        super.onStop()
-        // Do not keep reading aloud once the app is no longer in front of the user.
-
-        if (serviceBound) {
-            unbindService(serviceConnection)
-            serviceBound = false
-            sceneAnswerer = null
+    /** Deletes exact artifacts left by builds that bundled the local Gemma question model. */
+    private fun removeLegacyGemmaFiles() {
+        val directory = File(getExternalFilesDir(null), "models")
+        listOf(
+            File(directory, LEGACY_GEMMA_FILE),
+            File(directory, "$LEGACY_GEMMA_FILE.part"),
+        ).forEach { file ->
+            if (file.isFile && !file.delete()) {
+                android.util.Log.w(TAG, "Could not remove obsolete local language model")
+            }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        localProcessor.close()
+        if (directory.list()?.isEmpty() == true) directory.delete()
     }
 
     companion object {
         private const val TAG = "ImageSpeech"
         private const val REVIEW = "review"
+        private const val LEGACY_GEMMA_FILE = "gemma-4-E2B-it-gpu.litertlm"
     }
 }

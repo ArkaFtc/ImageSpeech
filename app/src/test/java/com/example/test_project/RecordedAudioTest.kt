@@ -9,7 +9,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RecordedAudioTest {
-    @Test fun `model audio is a mono PCM16 WAV with intact samples`() {
+    @Test fun `Gemini audio is a mono PCM16 WAV with intact samples`() {
         val samples = byteArrayOf(0, 0, -1, 127, 0, -128)
         val clip = RecordedAudio(samples, 16000, 1, true, 1, 1000.0)
         val file = File.createTempFile("recording-test", ".wav")

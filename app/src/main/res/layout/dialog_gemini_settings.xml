@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/txtProcessingStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textStyle="bold"
+        android:textSize="18sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/gemini_settings_explanation" />
+
+    <EditText
+        android:id="@+id/editApiKey"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:hint="@string/gemini_api_key"
+        android:inputType="textPassword"
+        android:importantForAutofill="noExcludeDescendants"
+        android:maxLines="1" />
+
+    <CheckBox
+        android:id="@+id/checkShowKey"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:text="@string/show_api_key" />
+</LinearLayout>

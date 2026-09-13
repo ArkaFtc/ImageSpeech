@@ -5,18 +5,17 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -78,8 +77,9 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     private val audio = AudioCapture()
     private var pressedAt = 0L
     private var cameraProvider: ProcessCameraProvider? = null
+    private var boundCamera: Camera? = null
+    private var requestedZoomRatio = 1f
     private var stillCapture: ImageCapture? = null
-    private lateinit var modePicker: Spinner
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
@@ -104,21 +104,14 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         firstFrame = CompletableDeferred()
         status = view.findViewById(R.id.txtCaptureStatus)
         shutter = view.findViewById(R.id.btnShutter)
-        modePicker = view.findViewById(R.id.readingMode)
-        modePicker.adapter =
-            ArrayAdapter(
-                requireContext(),
-                android.R.layout.simple_spinner_dropdown_item,
-                resources.getStringArray(R.array.reading_modes),
-            )
-        val preferences = requireContext().getSharedPreferences("capture", 0)
-        modePicker.setSelection(preferences.getInt("readingMode", 1).coerceIn(0, 2))
         wireShutter()
+        wireZoom(view)
 
         // Every missing permission, not just the camera. Gating the whole prompt on the camera
         // left the microphone unasked for good once the camera had been granted, and a press then
         // recorded silence - which the ask button reports as not having heard a question.
-        val missing = REQUIRED_PERMISSIONS.filterNot(::isGranted)
+        view.findViewById<View>(R.id.btnSettings).setOnClickListener { host.showGeminiSettings() }
+        val missing = CAMERA_PERMISSIONS.filterNot(::isGranted)
         if (missing.isEmpty()) {
             startCamera()
         } else {
@@ -144,13 +137,25 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                 MotionEvent.ACTION_DOWN -> {
                     pressedAt = SystemClock.elapsedRealtime()
                     button.isPressed = true
-                    audio.start()
+                    if (host.hasGeminiKey && isGranted(Manifest.permission.RECORD_AUDIO)) audio.start()
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     button.isPressed = false
                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
-                    capture(PressPolicy.audioFor(heldMs, audio.stop()))
+                    if (heldMs < PressPolicy.AUDIO_THRESHOLD_MS) {
+                        audio.release()
+                        capture()
+                    } else if (!host.hasGeminiKey) {
+                        audio.release()
+                        status.setText(R.string.gemini_required_for_questions)
+                    } else if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
+                        permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                        status.setText(R.string.mic_permission_then_hold)
+                    } else {
+                        val clip = PressPolicy.audioFor(heldMs, audio.stop())
+                        if (clip == null) status.setText(R.string.nothing_heard) else capture(clip)
+                    }
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
@@ -179,12 +184,6 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                     withTimeoutOrNull(FIRST_FRAME_TIMEOUT_MS) { firstFrame.await() }
                 }
 
-                val selectedMode = ReadingMode.entries[modePicker.selectedItemPosition]
-                requireContext()
-                    .getSharedPreferences("capture", 0)
-                    .edit()
-                    .putInt("readingMode", modePicker.selectedItemPosition)
-                    .apply()
                 val still =
                     try {
                         withTimeoutOrNull(8_000) { captureStill() }
@@ -206,7 +205,11 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                     "ReadingTiming",
                     "captureSize=${frame.width}x${frame.height} still=${still != null}",
                 )
-                shots.hold(Shot(frame, sharpness, clip, selectedMode))
+                val additional = shots.addingView
+                // The single general reading mode keeps OCR coordinates in the captured image's
+                // coordinate space so result boxes can be drawn honestly over the photograph.
+                shots.hold(Shot(frame, sharpness, clip, ReadingMode.TEXT))
+                if (!additional) host.processorRouter.resetConversation()
                 host.showReview()
             }
     }
@@ -297,6 +300,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                 // which is the documented source of z-order trouble when views are drawn over the
                 // preview - and this screen draws two.
                 viewFinder.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                viewFinder.scaleType = PreviewView.ScaleType.FIT_CENTER
                 val preview =
                     Preview.Builder().build().also {
                         it.surfaceProvider = viewFinder.surfaceProvider
@@ -331,7 +335,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
                 try {
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    boundCamera = cameraProvider.bindToLifecycle(
                         viewLifecycleOwner,
                         selector,
                         preview,
@@ -346,6 +350,33 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
             },
             ContextCompat.getMainExecutor(context),
         )
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun wireZoom(root: View) {
+        val detector =
+            ScaleGestureDetector(
+                requireContext(),
+                object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    override fun onScale(detector: ScaleGestureDetector): Boolean {
+                        zoomTo(requestedZoomRatio * detector.scaleFactor)
+                        return true
+                    }
+                },
+            )
+        root.findViewById<PreviewView>(R.id.viewFinder).setOnTouchListener { _, event ->
+            detector.onTouchEvent(event)
+            true
+        }
+        root.findViewById<Button>(R.id.btnZoomOut).setOnClickListener { zoomTo(requestedZoomRatio / 1.35f) }
+        root.findViewById<Button>(R.id.btnZoomIn).setOnClickListener { zoomTo(requestedZoomRatio * 1.35f) }
+    }
+
+    private fun zoomTo(requestedRatio: Float) {
+        val camera = boundCamera ?: return
+        val state = camera.cameraInfo.zoomState.value ?: return
+        requestedZoomRatio = requestedRatio.coerceIn(state.minZoomRatio, state.maxZoomRatio)
+        camera.cameraControl.setZoomRatio(requestedZoomRatio)
     }
 
     /**
@@ -407,6 +438,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         acceptingFrames = false
         cameraProvider?.unbindAll()
         cameraProvider = null
+        boundCamera = null
+        requestedZoomRatio = 1f
         stillCapture = null
         audio.release()
         super.onDestroyView()
@@ -449,13 +482,9 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
          * notifications are silently dropped, so the work still runs but the user loses the only
          * visible sign that a 1.9 GB transfer is happening.
          */
-        private val REQUIRED_PERMISSIONS =
+        private val CAMERA_PERMISSIONS =
             buildList {
                     add(Manifest.permission.CAMERA)
-                    add(Manifest.permission.RECORD_AUDIO)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        add(Manifest.permission.POST_NOTIFICATIONS)
-                    }
                 }
                 .toTypedArray()
     }

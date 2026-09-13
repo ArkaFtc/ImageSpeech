@@ -70,7 +70,10 @@ class AudioCapture {
             while (capturing && recorder === record) {
                 val read = runCatching { record.read(chunk, 0, chunk.size) }.getOrDefault(-1)
                 if (read > 0) {
-                    synchronized(sink) { sink.write(chunk, 0, read) }
+                    synchronized(sink) {
+                        val remaining = MAX_RECORDING_BYTES - sink.size()
+                        if (remaining > 0) sink.write(chunk, 0, minOf(read, remaining))
+                    }
                 } else if (read < 0) {
                     Log.w(TAG, "AudioRecord.read returned $read")
                     break
@@ -180,6 +183,8 @@ class AudioCapture {
 
         /** Keeps a dead-silent room from making its own noise floor look like speech. */
         private const val ABSOLUTE_FLOOR = 350.0
+        private const val MAX_RECORDING_SECONDS = 30
+        private const val MAX_RECORDING_BYTES = SAMPLE_RATE * BYTES_PER_SAMPLE * MAX_RECORDING_SECONDS
 
     }
 }

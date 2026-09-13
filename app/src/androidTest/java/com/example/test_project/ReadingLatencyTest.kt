@@ -33,7 +33,7 @@ class ReadingLatencyTest {
         original.recycle()
         ActivityScenario.launch(ReaderBenchmarkActivity::class.java).use {
             val processor =
-                withContext(Dispatchers.Main) { LocalImageSpeechProcessor(context) { null } }
+                withContext(Dispatchers.Main) { LocalImageSpeechProcessor(context) }
             try {
                 processor.awaitReady()
                 val start = SystemClock.elapsedRealtime()
@@ -74,7 +74,7 @@ class ReadingLatencyTest {
             instrumentation.context.assets.open("warped.jpg").use { BitmapFactory.decodeStream(it) }
         ActivityScenario.launch(ReaderBenchmarkActivity::class.java).use {
             val processor =
-                withContext(Dispatchers.Main) { LocalImageSpeechProcessor(context) { null } }
+                withContext(Dispatchers.Main) { LocalImageSpeechProcessor(context) }
             try {
                 processor.awaitReady()
                 val results = JSONArray()

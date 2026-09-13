@@ -2,11 +2,19 @@
 
 Android camera reader with on-device PPOCR, UVDoc page correction, optional spoken questions, and streaming text-to-speech.
 
+## Optional Gemini processing
+
+Open **Processing settings** and paste a Gemini Developer API key to send photos and typed or spoken questions directly from the phone to Gemini. The key is trimmed, stored in app-private preferences, excluded from Android backup/device transfer, and never built into the APK. Clear it to return to local processing. Friends may configure the same key independently; provider quotas still apply.
+
+Gemini mode uses `gemini-3.8-flash` through the public `streamGenerateContent` HTTPS endpoint with the documented `x-goog-api-key` header and low thinking. It sends bounded inline JPEG images and, for recorded questions, inline WAV audio. It does not run OCR/dewarping first, use search grounding, or require Firebase, Vertex, accounts, or a custom server. The phone retains a bounded conversation and up to four current views; follow-ups resend that context to Gemini. **New photo** starts a new subject and clears it.
+
+Responses appear as they stream and complete sentences are synthesized and played locally. A completed response can be replayed without another API call. Failures expose Retry and Read locally where appropriate; quota failures are not automatically retried.
+
 ## Reading
 
-Choose **Quick text** for signs, **Document** for one page, or **Book** for a two-page spread. Tap to photograph and read; hold the capture button for at least 400 ms to record a question. Tap a recognized passage to replay it. Stop, New photo, and Back cancel processing and playback.
+The camera stays inside a bordered viewfinder. Pinch the preview or use the −/+ controls to zoom, then tap **Take photo** to read; hold the capture button for at least 400 ms to record a question. The top-right control opens Gemini key settings. There is no reading-mode selector—the capture screen handles signs, pages, books, packages, and other images through one general flow.
 
-Capture requests a 2560 x 1920 still with the closest supported resolution. A short sharpest-frame burst is the fallback if still capture fails. The photo remains frozen in review. Book mode locates the central gutter and reads the left page before the right. Each page is conservatively cropped, limited to a 2000-pixel working long edge, and corrected with UVDoc. Quick text skips correction. If correction fails, recognition continues on the prepared image.
+Capture requests a 2560 x 1920 still with the closest supported resolution. A short sharpest-frame burst is the fallback if still capture fails. The photo remains full-size behind the review UI, and locally recognized passages are highlighted at their image coordinates. Tap a highlighted box to read that passage aloud. Gemini text has no provider-supplied geometry, so it appears in a readable overlay without fabricated bounding boxes. Stop, New photo, and Back cancel processing and playback.
 
 PPOCR detects rotated text regions and recognizes perspective-corrected line crops. Layout ordering groups columns and passages. Low-confidence recognition gets a second crop attempt; uncertain passages remain visible and are announced as uncertain. Recognition confidence is imperfect, and formulas, clipped text, illustrations, and complex tables still need care.
 
@@ -14,24 +22,24 @@ PPOCR detects rotated text regions and recognizes perspective-corrected line cro
 
 - `capture/`: camera, gestures, recording, review, playback.
 - `processing/ocr/`: page preparation, UVDoc, PPOCR, ordering, passage assembly.
-- `processing/voice/`: transcription, routing, bounded speech synthesis.
-- `processing/model/`: optional scene/question answering.
+- `processing/voice/`: bounded local speech synthesis.
+- `remote/`: direct Gemini requests, streaming parsing, and bounded conversation state.
 - `contract/`: requests, text blocks, and progress/audio events.
 
 ```kotlin
 fun process(request: ProcessingRequest): Flow<ReadingEvent>
 // Status -> incremental Block and Audio events -> Complete
-// Request: bitmap, optional recorded PCM audio, reading mode.
+// Request: bitmap and optional recorded PCM audio (legacy reading modes remain internal).
 // Audio: passage text and a complete WAV clip.
 ```
 
-PPOCR produces recognized lines, not autoregressive output tokens. The first usable passage goes to TTS while OCR continues. Bounded coroutine buffers limit lookahead; playback runs alongside event collection. Cancellation propagates through recognition, synthesis, and playback, with native inference cancelled between calls. Only completed OCR is cached, keyed by photo identity and reading mode. Repeated questions reuse that result. Document context retains page order and uncertainty without presenting rectified coordinates as camera coordinates.
+PPOCR produces recognized lines, not autoregressive output tokens. The first usable passage goes to TTS while OCR continues. Bounded coroutine buffers limit lookahead; playback runs alongside event collection. Cancellation propagates through recognition, synthesis, and playback, with native inference cancelled between calls. Only completed OCR is cached, keyed by photo identity and its internal processing mode. The capture UI uses coordinate-preserving local processing so overlay boxes map back to the photographed text.
 
-Reading bypasses the language model. Other spoken questions use the optional downloaded model; missing model support falls back to reading. The model download is managed by WorkManager. OCR and UVDoc are bundled. UVDoc's pinned revision and Apache license are in `app/src/main/assets/uvdoc-NOTICE.txt` and `uvdoc-LICENSE.txt`.
+There is no bundled or downloaded local language model. All language-model interactions—including typed and spoken questions and Gemini-mode reading—go through Gemini. A spoken question is sent as inline WAV audio with the current image; ImageSpeech does not transcribe it first. With no API key, ordinary reading uses local PPOCR/UVDoc and question controls explain that Gemini is required. Upgrading from an older build removes its obsolete Gemma model file. UVDoc's pinned revision and Apache license are in `app/src/main/assets/uvdoc-NOTICE.txt` and `uvdoc-LICENSE.txt`.
 
 ## Build and test
 
-Requires Java 21 and Android 12+. Recorded-PCM on-device transcription requires Android 13+; model audio support depends on the device/runtime.
+Requires Java 21 and Android 12+. Spoken questions require microphone permission and a Gemini API key.
 
 ```powershell
 $env:JAVA_HOME = 'C:\Users\aruns\.jdks\jbr-21.0.11'
@@ -44,8 +52,10 @@ For a side-by-side device test without replacing an existing differently signed 
 .\gradlew.bat -PreaderBenchmark=true :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-This uses application ID `com.example.test_project.reading`, label **ImageSpeech Reading Test**, and suppresses automatic language-model download. Normal builds retain the original ID and download behavior. The benchmark activity is debug-only.
+This uses application ID `com.example.test_project.reading` and label **ImageSpeech Reading Test**. The benchmark activity is debug-only.
 
-Unit tests cover ordering, page splitting/gutter detection, uncertainty, early speech, bounded cancellation, question context, gestures, intent routing, sentence chunking, and WAV encoding. Android instrumentation covers warped-book streaming latency, a larger input workload, exact rotated-line recognition, and the shared real-camera capture configuration. Grant camera permission before running `CameraCaptureTest`.
+Unit tests cover ordering, page splitting/gutter detection, overlay coordinate projection, uncertainty, early speech, bounded cancellation, routing, sentence chunking, and WAV encoding. Android instrumentation covers warped-book streaming latency, a larger input workload, exact rotated-line recognition, and the shared real-camera capture configuration. Grant camera permission before running `CameraCaptureTest`.
 
-Benchmark details and limitations: [reading](benchmarks/reading/RESULTS.md), [dewarp comparisons](benchmarks/dewarp/RESULTS.md), [isolated PPOCR](benchmarks/ppocr/RESULTS.md). Device validation does not yet establish microphone sensitivity, full optional-model question quality, or accuracy across diverse documents.
+Deterministic Gemini tests use MockWebServer and cover SSE chunk boundaries, filtering thought content, authentication/request settings, quota handling, interrupted output, key-based routing, and bounded follow-up context. No real key is stored in tests. Runtime timing logs include first visible text, first synthesized passage, total generation time, and upload bytes. Live Gemini/device testing remains necessary for image-reading accuracy, microphone behavior, and the approximately five-second useful-speech target.
+
+Benchmark details and limitations: [reading](benchmarks/reading/RESULTS.md), [dewarp comparisons](benchmarks/dewarp/RESULTS.md), [isolated PPOCR](benchmarks/ppocr/RESULTS.md). Device validation does not yet establish microphone sensitivity, live Gemini question quality, or accuracy across diverse documents.
