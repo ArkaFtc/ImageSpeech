@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
 
     <TextView
         android:id="@+id/txtProcessingStatus"
@@ -33,4 +38,24 @@
         android:layout_width="wrap_content"
         android:layout_height="48dp"
         android:text="@string/show_api_key" />
-</LinearLayout>
+
+    <Button
+        android:id="@+id/btnShareKeyQr"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:text="@string/share_key_qr" />
+
+    <Button
+        android:id="@+id/btnScanKeyQr"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="@string/scan_key_qr" />
+
+    <Button
+        android:id="@+id/btnImportKeyQr"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="@string/import_key_qr_image" />
+    </LinearLayout>
+</ScrollView>

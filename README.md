@@ -6,6 +6,8 @@ Android camera reader with on-device PPOCR, UVDoc page correction, optional spok
 
 Open **Processing settings** and paste a Gemini Developer API key to send photos and typed or spoken questions directly from the phone to Gemini. The key is trimmed, stored in app-private preferences, excluded from Android backup/device transfer, and never built into the APK. Clear it to return to local processing. Friends may configure the same key independently; provider quotas still apply.
 
+A saved key can be shown as a local QR code. A friend can scan it with the camera or import a QR image through Android's photo picker. ImageSpeech accepts only its versioned Gemini-key payload, stages the decoded value in the masked field, and does not replace the saved key until **Save** is tapped. QR generation and decoding are local; the key is not sent to a QR service or logged. Anyone who receives the QR can use the key and its shared provider quota.
+
 Gemini mode uses `gemini-3.8-flash` through the public `streamGenerateContent` HTTPS endpoint with the documented `x-goog-api-key` header and low thinking. It sends bounded inline JPEG images and, for recorded questions, inline WAV audio. It does not run OCR/dewarping first, use search grounding, or require Firebase, Vertex, accounts, or a custom server. The phone retains a bounded conversation and up to four current views; follow-ups resend that context to Gemini. **New photo** starts a new subject and clears it.
 
 Responses appear as they stream and complete sentences are synthesized and played locally. A completed response can be replayed without another API call. Failures expose Retry and Read locally where appropriate; quota failures are not automatically retried.
@@ -54,8 +56,10 @@ For a side-by-side device test without replacing an existing differently signed 
 
 This uses application ID `com.example.test_project.reading` and label **ImageSpeech Reading Test**. The benchmark activity is debug-only.
 
-Unit tests cover ordering, page splitting/gutter detection, overlay coordinate projection, uncertainty, early speech, bounded cancellation, routing, sentence chunking, and WAV encoding. Android instrumentation covers warped-book streaming latency, a larger input workload, exact rotated-line recognition, and the shared real-camera capture configuration. Grant camera permission before running `CameraCaptureTest`.
+Unit tests cover ordering, page splitting/gutter detection, overlay coordinate projection, uncertainty, early speech, bounded cancellation, routing, sentence chunking, WAV encoding, versioned QR payloads, and the shared key-change cancellation flow. Android instrumentation covers warped-book streaming latency, a larger input workload, exact rotated-line recognition, and the shared real-camera capture configuration. Grant camera permission before running `CameraCaptureTest`.
 
 Deterministic Gemini tests use MockWebServer and cover SSE chunk boundaries, filtering thought content, authentication/request settings, quota handling, interrupted output, key-based routing, and bounded follow-up context. No real key is stored in tests. Runtime timing logs include first visible text, first synthesized passage, total generation time, and upload bytes. Live Gemini/device testing remains necessary for image-reading accuracy, microphone behavior, and the approximately five-second useful-speech target.
 
 Benchmark details and limitations: [reading](benchmarks/reading/RESULTS.md), [dewarp comparisons](benchmarks/dewarp/RESULTS.md), [isolated PPOCR](benchmarks/ppocr/RESULTS.md). Device validation does not yet establish microphone sensitivity, live Gemini question quality, or accuracy across diverse documents.
+
+QR validation details and outstanding physical-device checks are recorded in [docs/QR_KEY_SHARING_VALIDATION.md](docs/QR_KEY_SHARING_VALIDATION.md).
