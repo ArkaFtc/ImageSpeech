@@ -1,7 +1,5 @@
 package com.example.test_project.contract
 
-import java.io.File
-
 data class RecordedAudio(
     val pcm: ByteArray,
     val sampleRate: Int,
@@ -13,11 +11,6 @@ data class RecordedAudio(
 ) {
     /** Whether the microphone handed back nothing at all, as opposed to a quiet room. */
     val isSilent: Boolean get() = peak < ABSOLUTE_FLOOR
-
-    /** Writes the clip as a WAV file, for the model audio input. */
-    fun writeWav(target: File) {
-        target.writeBytes(toWavBytes())
-    }
 
     fun toWavBytes(): ByteArray = wavHeader(pcm.size, sampleRate) + pcm
 

@@ -15,7 +15,6 @@ android {
         val readerBenchmark = providers.gradleProperty("readerBenchmark").orNull == "true"
         if (readerBenchmark) applicationId = "com.example.test_project.reading"
         manifestPlaceholders["appLabel"] = if (readerBenchmark) "ImageSpeech Reading Test" else "@string/app_name"
-        buildConfigField("boolean", "READER_BENCHMARK", readerBenchmark.toString())
         minSdk = 31
         targetSdk = 36
         versionCode = 1
@@ -23,17 +22,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildFeatures { buildConfig = true }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
