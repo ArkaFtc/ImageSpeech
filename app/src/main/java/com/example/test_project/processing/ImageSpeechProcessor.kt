@@ -22,7 +22,7 @@ class LocalImageSpeechProcessor(
 ) : ImageSpeechProcessor {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Mutex()
-    // LAZY is load-bearing: a saved Gemini key must bypass OCR initialization entirely.
+    // LAZY is load-bearing: with Gemma downloaded, OCR initialization is skipped entirely.
     private val engine = scope.async(start = CoroutineStart.LAZY) { DocumentReader(context.applicationContext) }
     private var cached: Cache? = null
 
@@ -91,7 +91,9 @@ class LocalImageSpeechProcessor(
                             if (blocks.isEmpty()) emit(context.getString(R.string.no_text_found))
                         }
                         .flowOn(Dispatchers.Default)
-                streamingSpeech(passages) { voice.synthesize(it) }
+                // Preparing finds and shows the text silently; reading happens when asked for.
+                if (request.action == ProcessingAction.PREPARE) passages.collect {}
+                else streamingSpeech(passages) { voice.synthesize(it) }
                     .collect { audio ->
                         if (firstAudio) {
                             Log.i(

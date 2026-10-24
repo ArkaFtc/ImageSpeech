@@ -1,10 +1,21 @@
 package com.example.test_project.processing.voice
 
-
-
-class SentenceChunker {
+/**
+ * Splits streamed text into speakable pieces.
+ *
+ * @param lineBreaksEndSentences true for model output, where every line break is meaningful
+ *   (a heading, a label line, a list item). False for OCR text, where a line break is often just
+ *   where the printed column wrapped.
+ * @param quickFirstPiece lets the first piece end at a comma or, failing that, a word boundary, so
+ *   speech starts as soon as possible; later pieces wait for whole sentences.
+ */
+class SentenceChunker(
+    private val lineBreaksEndSentences: Boolean = false,
+    private val quickFirstPiece: Boolean = false,
+) {
 
     private val buffer = StringBuilder()
+    private var emitted = false
 
     /** Appends a fragment and returns whatever complete sentences that made available. */
     fun offer(fragment: String): List<String> {
@@ -14,7 +25,10 @@ class SentenceChunker {
             val cut = nextCut() ?: break
             val piece = buffer.substring(0, cut).trim()
             buffer.delete(0, cut)
-            if (piece.isNotEmpty()) ready.add(piece)
+            if (piece.isNotEmpty()) {
+                ready.add(piece)
+                emitted = true
+            }
         }
         return ready
     }
@@ -30,7 +44,7 @@ class SentenceChunker {
         var i = 0
         scan@ while (i < buffer.length) {
             when (buffer[i]) {
-                '\n' -> when (classifyNewline(i)) {
+                '\n' -> when (if (lineBreaksEndSentences) Newline.BOUNDARY else classifyNewline(i)) {
                     Newline.BOUNDARY -> return i + 1
                     // A wrapped line rather than a boundary. Fold it to a space in place, so the
                     // rest of the sentence joins on and the scan never reconsiders it.
@@ -50,9 +64,22 @@ class SentenceChunker {
             }
             i++
         }
+        if (quickFirstPiece && !emitted) quickCut()?.let { return it }
         if (buffer.length >= SOFT_LIMIT) {
             val boundary = buffer.lastIndexOf(" ", SOFT_LIMIT)
             if (boundary >= MIN_SEGMENT) return boundary + 1
+        }
+        return null
+    }
+
+    /** An early cut for the first piece: a comma, else a word boundary once enough has arrived. */
+    private fun quickCut(): Int? {
+        for (i in QUICK_MIN until buffer.length - 1) {
+            if (buffer[i] == ',' && buffer[i + 1].isWhitespace()) return i + 1
+        }
+        if (buffer.length >= QUICK_SOFT_LIMIT) {
+            val boundary = buffer.lastIndexOf(" ", QUICK_SOFT_LIMIT)
+            if (boundary >= QUICK_MIN) return boundary + 1
         }
         return null
     }
@@ -106,6 +133,12 @@ class SentenceChunker {
         const val LABEL_LIMIT = 24
 
         const val SOFT_LIMIT = 220
+
+        /** The first piece is never shorter than this, so it is a phrase rather than a word. */
+        const val QUICK_MIN = 16
+
+        /** Without a comma, the first piece is cut at a word boundary once this much has arrived. */
+        const val QUICK_SOFT_LIMIT = 60
 
         val TERMINATORS = charArrayOf('.', '!', '?', ':', ';')
     }

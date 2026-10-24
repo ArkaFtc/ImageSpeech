@@ -4,6 +4,7 @@ import com.example.test_project.processing.voice.SentenceChunker
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SentenceChunkerTest {
@@ -121,5 +122,43 @@ class SentenceChunkerTest {
 
         assertEquals(emptyList<String>(), chunker.offer("   \n  "))
         assertNull(chunker.flush())
+    }
+
+    /** Model output: a long label line with no period is spoken as soon as the line ends. */
+    @Test
+    fun `model line breaks end a piece without punctuation`() {
+        val chunker = SentenceChunker(lineBreaksEndSentences = true)
+
+        assertEquals(
+            listOf("Maple Leaf Creams with real maple syrup filling"),
+            chunker.offer("Maple Leaf Creams with real maple syrup filling\nNet"),
+        )
+        assertEquals(listOf("Net Wt 10 oz"), chunker.offer(" Wt 10 oz\n"))
+    }
+
+    /** The same long line from OCR is still treated as a possible wrap. */
+    @Test
+    fun `ocr line breaks still wait for the sentence`() {
+        val chunker = SentenceChunker()
+        assertEquals(emptyList<String>(), chunker.offer("Maple Leaf Creams with real maple syrup filling\nNet"))
+    }
+
+    @Test
+    fun `quick first piece starts at a comma, later pieces wait for sentences`() {
+        val chunker = SentenceChunker(quickFirstPiece = true)
+
+        assertEquals(listOf("Keep this bottle tightly closed,"), chunker.offer("Keep this bottle tightly closed, and store"))
+        assertEquals(emptyList<String>(), chunker.offer(" it in a cool place, away"))
+        assertEquals(listOf("and store it in a cool place, away from light."), chunker.offer(" from light. "))
+    }
+
+    @Test
+    fun `quick first piece cuts at a word when there is no comma`() {
+        val chunker = SentenceChunker(quickFirstPiece = true)
+        val first = chunker.offer("This long first sentence keeps going without any punctuation at all for a while")
+
+        assertEquals(1, first.size)
+        assertTrue(first[0].length in 16..60)
+        assertTrue("cut between words", "This long first sentence keeps going without any punctuation at all for a while".startsWith(first[0] + " "))
     }
 }

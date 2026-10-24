@@ -75,6 +75,9 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private var captureJob: Job? = null
     private val audio = AudioCapture()
+    private var speech: SpeechInput? = null
+    /** Whether the current hold is going through speech to text rather than raw audio. */
+    private var transcribing = false
     private var pressedAt = 0L
     private var cameraProvider: ProcessCameraProvider? = null
     private var boundCamera: Camera? = null
@@ -104,13 +107,14 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         firstFrame = CompletableDeferred()
         status = view.findViewById(R.id.txtCaptureStatus)
         shutter = view.findViewById(R.id.btnShutter)
+        speech = SpeechInput(requireContext()) { heard -> status.text = heard }
         wireShutter()
         wireZoom(view)
 
         // Every missing permission, not just the camera. Gating the whole prompt on the camera
         // left the microphone unasked for good once the camera had been granted, and a press then
         // recorded silence - which the ask button reports as not having heard a question.
-        view.findViewById<View>(R.id.btnSettings).setOnClickListener { host.showGeminiSettings() }
+        view.findViewById<View>(R.id.btnSettings).setOnClickListener { host.showProcessingSettings() }
         val missing = CAMERA_PERMISSIONS.filterNot(::isGranted)
         if (missing.isEmpty()) {
             startCamera()
@@ -131,27 +135,47 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun wireShutter() {
+        val holding = HoldFeedback(shutter)
+        // Only a press long enough to be a question changes the button, so taps never flash.
+        val showHolding = Runnable { holding.show() }
+        fun endHolding() {
+            shutter.removeCallbacks(showHolding)
+            holding.hide()
+        }
         shutter.setOnClickListener { capture() }
         shutter.setOnTouchListener { button, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     pressedAt = SystemClock.elapsedRealtime()
                     button.isPressed = true
-                    if (host.hasGeminiKey && isGranted(Manifest.permission.RECORD_AUDIO)) audio.start()
+                    transcribing = false
+                    if (host.hasGemma && isGranted(Manifest.permission.RECORD_AUDIO)) {
+                        transcribing = speech?.isAvailable == true
+                        if (transcribing) speech?.start() else audio.start()
+                        button.postDelayed(showHolding, PressPolicy.AUDIO_THRESHOLD_MS)
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     button.isPressed = false
+                    endHolding()
                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
                     if (heldMs < PressPolicy.AUDIO_THRESHOLD_MS) {
+                        speech?.cancel()
                         audio.release()
                         capture()
-                    } else if (!host.hasGeminiKey) {
+                    } else if (!host.hasGemma) {
+                        speech?.cancel()
                         audio.release()
-                        status.setText(R.string.gemini_required_for_questions)
+                        status.setText(R.string.gemma_required_for_questions)
                     } else if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
                         permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
                         status.setText(R.string.mic_permission_then_hold)
+                    } else if (transcribing) {
+                        // The photo is taken now; the question's final words follow a moment later.
+                        val question = CompletableDeferred<String>()
+                        speech?.finish { question.complete(it) }
+                        capture(spoken = question)
                     } else {
                         val clip = PressPolicy.audioFor(heldMs, audio.stop())
                         if (clip == null) status.setText(R.string.nothing_heard) else capture(clip)
@@ -160,6 +184,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     button.isPressed = false
+                    endHolding()
+                    speech?.cancel()
                     audio.release()
                     true
                 }
@@ -168,7 +194,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         }
     }
 
-    private fun capture(clip: RecordedAudio? = null) {
+    private fun capture(clip: RecordedAudio? = null, spoken: CompletableDeferred<String>? = null) {
         if (captureJob?.isActive == true) return
         shutter.isEnabled = false
 
@@ -199,6 +225,11 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                     return@launch
                 }
                 val (frame, sharpness) = captured
+                val question = spoken?.let { withTimeoutOrNull(QUESTION_TIMEOUT_MS) { it.await() }.orEmpty().trim() }
+                if (question != null && question.isEmpty()) {
+                    fail(getString(R.string.nothing_heard))
+                    return@launch
+                }
 
                 cameraProvider?.unbindAll()
                 Log.i(
@@ -208,7 +239,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                 val additional = shots.addingView
                 // The single general reading mode keeps OCR coordinates in the captured image's
                 // coordinate space so result boxes can be drawn honestly over the photograph.
-                shots.hold(Shot(frame, sharpness, clip, ReadingMode.TEXT))
+                shots.hold(Shot(frame, sharpness, clip, ReadingMode.TEXT, question))
                 if (!additional) host.processorRouter.resetConversation()
                 host.showReview()
             }
@@ -429,6 +460,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     override fun onStop() {
         captureJob?.cancel()
         collecting = false
+        speech?.cancel()
         audio.release()
         shutter.isPressed = false
         super.onStop()
@@ -441,6 +473,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         boundCamera = null
         requestedZoomRatio = 1f
         stillCapture = null
+        speech?.destroy()
+        speech = null
         audio.release()
         super.onDestroyView()
         captureJob?.cancel()
@@ -473,6 +507,9 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
          * the alternative is telling the user to try again when the app simply was not ready yet.
          */
         private const val FIRST_FRAME_TIMEOUT_MS = 3_000L
+
+        /** How long to wait after release for the recognizer's final words. */
+        private const val QUESTION_TIMEOUT_MS = 5_000L
 
         private val CAMERA_PREFERENCE =
             listOf(CameraSelector.DEFAULT_BACK_CAMERA, CameraSelector.DEFAULT_FRONT_CAMERA)

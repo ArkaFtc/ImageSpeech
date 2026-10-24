@@ -2,18 +2,12 @@ package com.example.test_project
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
-import android.widget.CheckBox
-import android.widget.EditText
-import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
@@ -24,19 +18,17 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.example.test_project.capture.CaptureFragment
 import com.example.test_project.capture.ReviewFragment
 import com.example.test_project.contract.ImageSpeechProcessor
-import com.example.test_project.settings.GeminiKeyChangeFlow
-import com.example.test_project.settings.GeminiQrPayload
-import com.example.test_project.settings.QrImageDecoder
-import com.google.zxing.BarcodeFormat
-import com.journeyapps.barcodescanner.BarcodeEncoder
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import com.example.test_project.ondevice.GemmaConfig
+import com.example.test_project.ondevice.GemmaDownloadWorker
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -46,44 +38,19 @@ class MainActivity : AppCompatActivity() {
     val processor: ImageSpeechProcessor
         get() = state.processor
     val processorRouter get() = state.processor
-    val hasGeminiKey: Boolean get() = state.keyStore.get() != null
+
+    /** Whether questions can be answered: the Gemma model is downloaded and able to start. */
+    val hasGemma: Boolean get() = state.processor.isGemmaReady
 
     private lateinit var startupOverlay: View
     private lateinit var startupDetail: TextView
     private var settingsDialog: AlertDialog? = null
-    private var settingsKeyField: EditText? = null
+    private var settingsWatcher: Job? = null
 
-    private val qrScanner = registerForActivityResult(ScanContract()) { result ->
-        val content = result.contents
-        if (content == null) {
-            Toast.makeText(this, R.string.qr_scan_cancelled, Toast.LENGTH_LONG).show()
-        } else {
-            acceptQrPayload(content)
-        }
-    }
-
-    private val qrCameraPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) launchQrScanner()
-            else Toast.makeText(this, R.string.qr_camera_denied, Toast.LENGTH_LONG).show()
-        }
-
-    private val qrImagePicker =
-        registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            if (uri == null) {
-                Toast.makeText(this, R.string.qr_import_cancelled, Toast.LENGTH_LONG).show()
-                return@registerForActivityResult
-            }
-            lifecycleScope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    QrImageDecoder.decode(contentResolver, uri)
-                }
-                when (result) {
-                    is QrImageDecoder.Result.Content -> acceptQrPayload(result.value)
-                    QrImageDecoder.Result.Oversized -> showQrMessage(R.string.qr_oversized)
-                    QrImageDecoder.Result.Unreadable -> showQrMessage(R.string.qr_unreadable)
-                }
-            }
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // The download runs either way; the permission only makes its progress visible.
+            GemmaDownloadWorker.enqueue(this)
         }
 
     /**
@@ -105,11 +72,12 @@ class MainActivity : AppCompatActivity() {
 
         startupOverlay = findViewById(R.id.startupOverlay)
         startupDetail = findViewById(R.id.txtStartupDetail)
-        removeLegacyGemmaFiles()
+        removeLegacyGemmaFile()
 
         lifecycleScope.launch {
             runCatching { state.processor.prepareSpeech() }
                 .onFailure { android.util.Log.w(TAG, "Speech not ready", it) }
+            prepareGemmaInBackground()
         }
         dismissStartupWhenReady()
 
@@ -119,7 +87,6 @@ class MainActivity : AppCompatActivity() {
                 replace(R.id.screen, CaptureFragment())
             }
         }
-
     }
 
     // ------------------------------------------------------------------ shared machinery
@@ -148,9 +115,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Holds the cover until there is genuinely something behind it: the reader is open and the
-     * camera has produced a frame. Until both are true the preview is a black rectangle, which
-     * looks identical to a crash.
+     * Holds the cover until there is genuinely something behind it: the camera has produced a
+     * frame. Until then the preview is a black rectangle, which looks identical to a crash.
      */
     private fun dismissStartupWhenReady() {
         lifecycleScope.launch {
@@ -163,168 +129,138 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun showGeminiSettings(stagedKey: String? = null) {
+    private suspend fun prepareGemmaInBackground() {
+        runCatching { state.processor.prepareGemma() }
+            .onFailure { android.util.Log.w(TAG, "Gemma not ready", it) }
+    }
+
+    // ------------------------------------------------------------------ processing settings
+
+    fun showProcessingSettings() {
         settingsDialog?.dismiss()
-        val content = LayoutInflater.from(this).inflate(R.layout.dialog_gemini_settings, null)
-        val key = content.findViewById<EditText>(R.id.editApiKey)
-        val show = content.findViewById<CheckBox>(R.id.checkShowKey)
+        val content = LayoutInflater.from(this).inflate(R.layout.dialog_processing_settings, null)
         val status = content.findViewById<TextView>(R.id.txtProcessingStatus)
-        val savedKey = state.keyStore.get()
-        key.setText(stagedKey ?: savedKey.orEmpty())
-        status.setText(if (hasGeminiKey) R.string.gemini_processing else R.string.local_processing)
-        show.setOnCheckedChangeListener { _, checked ->
-            key.inputType = InputType.TYPE_CLASS_TEXT or
-                if (checked) InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else InputType.TYPE_TEXT_VARIATION_PASSWORD
-            key.setSelection(key.text.length)
+        val progress = content.findViewById<TextView>(R.id.txtDownloadProgress)
+        val download = content.findViewById<Button>(R.id.btnDownloadGemma)
+        val delete = content.findViewById<Button>(R.id.btnDeleteGemma)
+        val enable = content.findViewById<Button>(R.id.btnEnableGemma)
+        val router = state.processor
+        content.findViewById<View>(R.id.txtDeviceNote).visibility =
+            if (router.gemmaProfile.useGpu) View.GONE else View.VISIBLE
+
+        fun render(info: WorkInfo?) {
+            val store = state.processor.modelStore
+            val downloading = !store.isPresent && GemmaDownloadWorker.isActive(info)
+            status.setText(
+                when {
+                    hasGemma -> R.string.gemma_processing
+                    store.isPresent && router.gemmaHealth.isDisabled -> R.string.gemma_disabled_low_memory
+                    store.isPresent -> R.string.gemma_failed_to_start
+                    else -> R.string.local_processing
+                },
+            )
+            progress.visibility = View.VISIBLE
+            progress.text = when {
+                store.isPresent -> getString(R.string.gemma_downloaded)
+                info?.state == WorkInfo.State.RUNNING -> getString(
+                    R.string.gemma_download_progress,
+                    info.progress.getInt(GemmaDownloadWorker.KEY_PERCENT, GemmaDownloadWorker.percent(store.downloadedBytes)),
+                )
+                downloading -> getString(R.string.gemma_waiting_for_wifi)
+                info?.state == WorkInfo.State.FAILED -> getString(R.string.gemma_download_failed)
+                store.downloadedBytes > 0 -> getString(R.string.gemma_download_paused, GemmaDownloadWorker.percent(store.downloadedBytes))
+                else -> getString(R.string.gemma_not_downloaded, GemmaConfig.EXPECTED_BYTES / 1_000_000_000.0)
+            }
+            download.visibility = if (store.isPresent) View.GONE else View.VISIBLE
+            download.setText(if (downloading) R.string.cancel_download else R.string.download_gemma)
+            download.setOnClickListener {
+                if (downloading) GemmaDownloadWorker.cancel(this) else startGemmaDownload()
+            }
+            enable.visibility = if (store.isPresent && router.gemmaHealth.isDisabled) View.VISIBLE else View.GONE
+            enable.setOnClickListener {
+                router.enableGemma()
+                render(info)
+            }
+            delete.visibility = if (store.isPresent || store.downloadedBytes > 0) View.VISIBLE else View.GONE
+            delete.setOnClickListener { confirmDeleteGemma() }
         }
-        content.findViewById<Button>(R.id.btnShareKeyQr).apply {
-            isEnabled = savedKey != null
-            setOnClickListener { savedKey?.let(::showSharedKeyQr) }
-        }
-        content.findViewById<Button>(R.id.btnScanKeyQr).setOnClickListener { requestQrScanner() }
-        content.findViewById<Button>(R.id.btnImportKeyQr).setOnClickListener {
-            qrImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        }
+
         val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.processing_settings)
             .setView(content)
-            .setPositiveButton(R.string.save, null)
-            .setNeutralButton(R.string.clear, null)
-            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, null)
             .create()
-        dialog.setOnShowListener {
-            fun applyValue(value: String) {
-                GeminiKeyChangeFlow(
-                    store = state.keyStore::set,
-                    cancelUi = {
-                        (supportFragmentManager.findFragmentById(R.id.screen) as? ReviewFragment)
-                            ?.cancelForSettingsChange()
-                    },
-                    clearConversation = state.processor::resetConversation,
-                    cancelProcessing = { state.cancelProcessing(clearState = true) },
-                ).apply(value)
-                dialog.dismiss()
-            }
-            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener { applyValue(key.text.toString()) }
-            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL)
-                .setOnClickListener { applyValue("") }
+        settingsWatcher?.cancel()
+        settingsWatcher = lifecycleScope.launch {
+            var wasPresent = state.processor.modelStore.isPresent
+            WorkManager.getInstance(this@MainActivity)
+                .getWorkInfosForUniqueWorkFlow(GemmaDownloadWorker.WORK_NAME)
+                .collect { infos ->
+                    val present = state.processor.modelStore.isPresent
+                    if (present && !wasPresent) launch { prepareGemmaInBackground() }
+                    wasPresent = present
+                    render(infos.firstOrNull())
+                }
         }
         dialog.setOnDismissListener {
             if (settingsDialog === dialog) {
                 settingsDialog = null
-                settingsKeyField = null
+                settingsWatcher?.cancel()
+                settingsWatcher = null
             }
         }
         settingsDialog = dialog
-        settingsKeyField = key
+        render(null)
         dialog.show()
     }
 
-    private fun requestQrScanner() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+    private fun startGemmaDownload() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            launchQrScanner()
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            qrCameraPermission.launch(Manifest.permission.CAMERA)
+            GemmaDownloadWorker.enqueue(this)
         }
     }
 
-    private fun launchQrScanner() {
-        qrScanner.launch(
-            ScanOptions()
-                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setPrompt(getString(R.string.scan_key_prompt))
-                .setBeepEnabled(false)
-                .setOrientationLocked(false),
-        )
+    private fun confirmDeleteGemma() {
+        AlertDialog.Builder(this)
+            .setMessage(R.string.delete_gemma_confirm)
+            .setPositiveButton(R.string.delete_gemma) { _, _ -> deleteGemma() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
-    private fun acceptQrPayload(payload: String) {
-        when (val decoded = GeminiQrPayload.decode(payload)) {
-            is GeminiQrPayload.DecodeResult.Success -> {
-                val field = settingsKeyField
-                if (field == null || !field.isAttachedToWindow) {
-                    showGeminiSettings(decoded.key)
-                } else {
-                    field.setText(decoded.key)
-                    field.setSelection(field.text.length)
-                }
-                Toast.makeText(this, R.string.qr_key_staged, Toast.LENGTH_LONG).show()
-            }
-            is GeminiQrPayload.DecodeResult.UnsupportedVersion ->
-                showQrMessage(R.string.qr_unsupported_version)
-            GeminiQrPayload.DecodeResult.Unsupported -> showQrMessage(R.string.qr_unsupported)
-            GeminiQrPayload.DecodeResult.Malformed -> showQrMessage(R.string.qr_unsupported)
-        }
-    }
-
-    private fun showSharedKeyQr(key: String) {
+    /**
+     * Same order as any processing change: stop the UI and the running request, wait until it has
+     * really stopped, and only then free the native model and delete its file.
+     */
+    private fun deleteGemma() {
+        (supportFragmentManager.findFragmentById(R.id.screen) as? ReviewFragment)?.cancelForSettingsChange()
         lifecycleScope.launch {
-            val bitmap = withContext(Dispatchers.Default) {
-                runCatching {
-                    BarcodeEncoder().encodeBitmap(
-                        GeminiQrPayload.encode(key),
-                        BarcodeFormat.QR_CODE,
-                        QR_SIZE_PX,
-                        QR_SIZE_PX,
-                    )
-                }.getOrNull()
-            }
-            if (bitmap == null) {
-                showQrMessage(R.string.qr_generation_failed)
-                return@launch
-            }
-            val padding = (24 * resources.displayMetrics.density).toInt()
-            val content = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(padding, padding / 2, padding, 0)
-                addView(ImageView(context).apply {
-                    setImageBitmap(bitmap)
-                    adjustViewBounds = true
-                    contentDescription = getString(R.string.shared_key_qr_description)
-                }, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ))
-                addView(TextView(context).apply {
-                    setText(R.string.shared_key_warning)
-                    textSize = 16f
-                    setPadding(0, padding / 2, 0, padding / 2)
-                })
-            }
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle(R.string.shared_key_qr)
-                .setView(content)
-                .setPositiveButton(android.R.string.ok, null)
-                .setOnDismissListener { bitmap.recycle() }
-                .show()
+            GemmaDownloadWorker.cancel(this@MainActivity)
+            state.stopProcessingAndWait()
+            withContext(Dispatchers.Default) { state.processor.releaseGemma() }
+            withContext(Dispatchers.IO) { state.processor.modelStore.delete() }
+            settingsDialog?.let { if (it.isShowing) showProcessingSettings() }
         }
     }
 
-    private fun showQrMessage(message: Int) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-    }
-
-    /** Deletes exact artifacts left by builds that bundled the local Gemma question model. */
-    private fun removeLegacyGemmaFiles() {
+    /** Deletes the GPU-only Gemma file left by older builds; the current build uses another file. */
+    private fun removeLegacyGemmaFile() {
         val directory = File(getExternalFilesDir(null), "models")
-        listOf(
-            File(directory, LEGACY_GEMMA_FILE),
-            File(directory, "$LEGACY_GEMMA_FILE.part"),
-        ).forEach { file ->
+        listOf(File(directory, LEGACY_GEMMA_FILE), File(directory, "$LEGACY_GEMMA_FILE.part")).forEach { file ->
             if (file.isFile && !file.delete()) {
-                android.util.Log.w(TAG, "Could not remove obsolete local language model")
+                android.util.Log.w(TAG, "Could not remove obsolete Gemma file")
             }
         }
-        if (directory.list()?.isEmpty() == true) directory.delete()
     }
 
     companion object {
         private const val TAG = "ImageSpeech"
         private const val REVIEW = "review"
         private const val LEGACY_GEMMA_FILE = "gemma-4-E2B-it-gpu.litertlm"
-        private const val QR_SIZE_PX = 720
     }
 }

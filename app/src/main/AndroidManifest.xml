@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Required on Android 11+ so TextToSpeech can discover an installed speech engine. -->
     <queries>
@@ -12,11 +13,16 @@
         android:name="android.hardware.camera"
         android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Recorded questions are sent directly to Gemini as WAV audio. -->
+    <!-- Recorded questions are passed to the on-device Gemma model as WAV audio. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
-    <!-- Direct Gemini API requests. -->
+    <!-- One-time Gemma model download (Wi-Fi only) and its progress notification. Photos and
+         questions never use the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <application
         android:largeHeap="true"
         android:allowBackup="true"
@@ -27,6 +33,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Test_project">
+        <!-- LiteRT-LM's GPU backend loads these vendor libraries when the phone provides them. -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -37,6 +47,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- WorkManager runs the long download in its own foreground service; it needs the type the
+             worker passes to setForeground, or the platform rejects it. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 
 </manifest>

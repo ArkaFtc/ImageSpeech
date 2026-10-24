@@ -8,9 +8,9 @@ import com.example.test_project.contract.ReadingEvent
 import com.example.test_project.contract.SpokenAudio
 import com.example.test_project.contract.TextBlock
 import com.example.test_project.processing.ProcessorRouter
-import com.example.test_project.settings.GeminiKeyStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -27,15 +27,22 @@ data class ReviewRunState(
     val complete: Boolean = false,
 )
 
+/** A spoken passage tagged with the request that produced it. */
+class QueuedAudio(val generation: Long, val audio: SpokenAudio)
+
 class ImageSpeechViewModel(application: Application) : AndroidViewModel(application) {
-    val keyStore = GeminiKeyStore(application)
-    val processor = ProcessorRouter(application, keyStore)
+    val processor = ProcessorRouter(application)
     private val _review = MutableStateFlow(ReviewRunState())
     val review = _review.asStateFlow()
-    private val _audio = MutableSharedFlow<SpokenAudio>(extraBufferCapacity = 1)
+    // Passages queue here while earlier ones play, so incoming text keeps appearing on screen
+    // instead of waiting behind playback. Bounded by the model's output limit.
+    private val _audio = MutableSharedFlow<QueuedAudio>(extraBufferCapacity = 64)
     val audio = _audio.asSharedFlow()
+
+    /** Passages queued by a request that has since been replaced or stopped must not play. */
+    fun isCurrent(queued: QueuedAudio): Boolean = queued.generation == generation
     private var active: Job? = null
-    private var generation = 0L
+    @Volatile private var generation = 0L
     private var lastRequest: ProcessingRequest? = null
 
     fun ensureInitial(request: ProcessingRequest) {
@@ -57,7 +64,7 @@ class ImageSpeechViewModel(application: Application) : AndroidViewModel(applicat
                         is ReadingEvent.Status -> _review.value = _review.value.copy(status = event.text)
                         is ReadingEvent.Block -> _review.value = _review.value.copy(blocks = _review.value.blocks + event.block)
                         is ReadingEvent.TextDelta -> _review.value = _review.value.copy(response = _review.value.response + event.text)
-                        is ReadingEvent.Audio -> _audio.emit(event.audio)
+                        is ReadingEvent.Audio -> _audio.emit(QueuedAudio(mine, event.audio))
                         is ReadingEvent.Complete -> _review.value = _review.value.copy(
                             blocks = event.blocks,
                             response = event.responseText,
@@ -92,6 +99,13 @@ class ImageSpeechViewModel(application: Application) : AndroidViewModel(applicat
         active = null
         if (clearState) lastRequest = null
         _review.value = if (clearState) ReviewRunState() else _review.value.copy(running = false)
+    }
+
+    /** Stops processing and waits for it, so native model memory can be freed safely afterwards. */
+    suspend fun stopProcessingAndWait() {
+        val running = active
+        cancelProcessing(clearState = true)
+        running?.cancelAndJoin()
     }
 
     private fun ProcessingRequest.identity(): List<Int> =

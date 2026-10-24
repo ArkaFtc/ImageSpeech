@@ -18,7 +18,14 @@ data class ProcessingRequest(
     val question: String? = null,
 )
 
-enum class ProcessingAction { READ, READ_ALL, ASK }
+enum class ProcessingAction {
+    /** Get the photo ready (process it, find its text) without reading anything aloud. */
+    PREPARE,
+    READ,
+    READ_ALL,
+    SUMMARIZE,
+    ASK,
+}
 
 data class SpokenAudio(val text: String, val wav: ByteArray, val readingStartedAtMs: Long? = null)
 
@@ -28,7 +35,7 @@ sealed interface ReadingEvent {
 
     data class Block(val block: TextBlock) : ReadingEvent
 
-    /** Cloud text has no honest camera-space geometry, so it is streamed separately. */
+    /** Model text has no honest camera-space geometry, so it is streamed separately. */
     data class TextDelta(val text: String) : ReadingEvent
 
     data class Audio(val audio: SpokenAudio) : ReadingEvent
@@ -51,7 +58,7 @@ data class ProcessingMetrics(
     val firstTextMs: Long?,
     val firstAudioReadyMs: Long?,
     val totalMs: Long,
-    val uploadBytes: Int,
+    val inputBytes: Int,
 )
 
 interface ImageSpeechProcessor {

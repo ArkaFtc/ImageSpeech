@@ -2,12 +2,12 @@ package com.example.test_project.processing
 
 import com.example.test_project.contract.ProcessingAction
 
-enum class ProcessingLane { LOCAL, GEMINI, GEMINI_REQUIRED }
+enum class ProcessingLane { LOCAL, GEMMA, GEMMA_REQUIRED }
 
 object ProcessingSelector {
-    fun select(hasKey: Boolean, action: ProcessingAction): ProcessingLane = when {
-        hasKey -> ProcessingLane.GEMINI
-        action == ProcessingAction.ASK -> ProcessingLane.GEMINI_REQUIRED
+    fun select(gemmaReady: Boolean, action: ProcessingAction): ProcessingLane = when {
+        gemmaReady -> ProcessingLane.GEMMA
+        action == ProcessingAction.ASK || action == ProcessingAction.SUMMARIZE -> ProcessingLane.GEMMA_REQUIRED
         else -> ProcessingLane.LOCAL
     }
 }

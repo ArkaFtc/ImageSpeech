@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A hold-to-talk button while it is held: light blue, with dark text and mic for contrast. -->
+    <color name="holding_background">#BBD6FB</color>
+    <color name="holding_text">#0B3D91</color>
+</resources>

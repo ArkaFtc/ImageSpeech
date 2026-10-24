@@ -43,6 +43,10 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         get() = requireActivity() as MainActivity
 
     private val recorder = AudioCapture()
+    private var speech: SpeechInput? = null
+    private var questionField: EditText? = null
+    /** Whether this press is going through speech to text rather than raw audio. */
+    private var transcribing = false
     private var voiceJob: Job? = null
     private var pressedAt = 0L
     private lateinit var status: TextView
@@ -50,7 +54,6 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private lateinit var shotImage: ImageView
     private lateinit var player: AudioPlayer
     private lateinit var errorActions: View
-    private lateinit var addViewButton: Button
     private var renderedBlocks: List<TextBlock> = emptyList()
     private var renderedResponse = ""
 
@@ -88,19 +91,20 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         view.findViewById<Button>(R.id.btnReadAll).setOnClickListener {
             process(null, action = ProcessingAction.READ_ALL)
         }
-        addViewButton = view.findViewById<Button>(R.id.btnAddView).apply {
-            visibility = if (host.hasGeminiKey) View.VISIBLE else View.GONE
-            setOnClickListener {
-                stopVoice()
-                shots.beginAdditionalView()
-                host.showCapture()
-            }
+        view.findViewById<Button>(R.id.btnSummarize).setOnClickListener {
+            if (!host.hasGemma) status.setText(R.string.gemma_required_for_questions)
+            else process(null, action = ProcessingAction.SUMMARIZE)
         }
-        view.findViewById<View>(R.id.btnReviewSettings).setOnClickListener { host.showGeminiSettings() }
+        view.findViewById<View>(R.id.btnReviewSettings).setOnClickListener { host.showProcessingSettings() }
         val typed = view.findViewById<EditText>(R.id.editQuestion)
+        questionField = typed
+        speech = SpeechInput(requireContext()) { heard ->
+            typed.setText(heard)
+            typed.setSelection(typed.text.length)
+        }
         view.findViewById<Button>(R.id.btnTypedAsk).setOnClickListener {
-            if (!host.hasGeminiKey) {
-                status.setText(R.string.gemini_required_for_questions)
+            if (!host.hasGemma) {
+                status.setText(R.string.gemma_required_for_questions)
             } else if (typed.text.toString().trim().isEmpty()) {
                 status.setText(R.string.type_question_first)
             } else {
@@ -114,13 +118,18 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         wireAsk(view.findViewById(R.id.btnAsk))
         val clip = shot.audio
         shot.audio = null
+        val spokenQuestion = shot.question
+        shot.question = null
+        if (spokenQuestion != null) typed.setText(spokenQuestion)
         observeProcessing()
         val initial = ProcessingRequest(
             shot.frame,
             shot.additionalFrames.toList(),
             clip,
             shot.mode,
-            if (clip != null) ProcessingAction.ASK else ProcessingAction.READ,
+            // Nothing is read aloud on its own: the photo is only made ready until the user asks.
+            if (clip != null || spokenQuestion != null) ProcessingAction.ASK else ProcessingAction.PREPARE,
+            spokenQuestion,
         )
         appState.ensureInitial(initial)
     }
@@ -131,6 +140,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         question: String? = null,
     ) {
         val shot = shots.shot ?: return
+        // A new request replaces whatever is being spoken now.
+        stopVoice()
         appState.start(
             ProcessingRequest(
                 image = shot.frame,
@@ -174,7 +185,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                         }
                     }
                 }
-                launch { appState.audio.collect { player.play(it) } }
+                launch {
+                    appState.audio.collect { queued ->
+                        if (appState.isCurrent(queued)) player.play(queued.audio)
+                    }
+                }
             }
         }
     }
@@ -247,12 +262,13 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun wireAsk(button: Button) {
+        val holding = HoldFeedback(button)
         button.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     stopVoice()
-                    if (!host.hasGeminiKey) {
-                        status.setText(R.string.gemini_required_for_questions)
+                    if (!host.hasGemma) {
+                        status.setText(R.string.gemma_required_for_questions)
                         return@setOnTouchListener true
                     }
                     if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -260,20 +276,40 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                         return@setOnTouchListener true
                     }
                     view.isPressed = true
+                    holding.show()
                     pressedAt = SystemClock.elapsedRealtime()
                     status.setText(R.string.listening)
-                    recorder.start()
+                    val recognizer = speech
+                    transcribing = recognizer?.isAvailable == true
+                    if (transcribing) {
+                        questionField?.setText("")
+                        recognizer?.start()
+                    } else {
+                        recorder.start()
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     view.isPressed = false
-                    if (!host.hasGeminiKey || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@setOnTouchListener true
+                    holding.hide()
+                    if (!host.hasGemma || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@setOnTouchListener true
                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
-                    process(PressPolicy.audioFor(heldMs, recorder.stop()), ProcessingAction.ASK)
+                    if (transcribing) {
+                        status.setText(R.string.finishing_question)
+                        speech?.finish { question ->
+                            if (!isAdded) return@finish
+                            if (question.isBlank()) status.setText(R.string.nothing_heard)
+                            else process(null, ProcessingAction.ASK, question = question)
+                        }
+                    } else {
+                        process(PressPolicy.audioFor(heldMs, recorder.stop()), ProcessingAction.ASK)
+                    }
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     view.isPressed = false
+                    holding.hide()
+                    speech?.cancel()
                     recorder.release()
                     status.setText(R.string.hold_to_ask)
                     true
@@ -311,18 +347,25 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         player.stop()
     }
 
+    override fun onDestroyView() {
+        speech?.destroy()
+        speech = null
+        questionField = null
+        super.onDestroyView()
+    }
+
     fun cancelForSettingsChange() {
         stopVoice()
         appState.cancelProcessing(clearState = true)
         if (this::status.isInitialized) {
             status.setText(R.string.processing_changed)
-            addViewButton.visibility = if (host.hasGeminiKey) View.VISIBLE else View.GONE
         }
     }
 
     override fun onStop() {
         stopVoice()
         if (isRemoving || requireActivity().isFinishing) appState.cancelProcessing()
+        speech?.cancel()
         recorder.release()
         super.onStop()
     }

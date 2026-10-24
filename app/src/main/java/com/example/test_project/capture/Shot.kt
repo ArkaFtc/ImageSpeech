@@ -10,6 +10,8 @@ class Shot(
     val sharpness: Double,
     var audio: RecordedAudio? = null,
     val mode: ReadingMode = ReadingMode.TEXT,
+    /** A question spoken while taking the photo, already turned into text. */
+    var question: String? = null,
 ) {
     val additionalFrames = mutableListOf<Bitmap>()
     var completedResponse: String = ""

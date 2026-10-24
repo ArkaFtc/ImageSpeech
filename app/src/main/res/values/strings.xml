@@ -6,14 +6,14 @@
     <string name="app_name">ImageSpeech</string>
 
     <!-- Screen one: the camera. -->
-    <string name="capture_hint">Tap to read text. Hold and speak to ask about a photo.</string>
+    <string name="capture_hint">Tap to take a photo. Hold and speak to ask about it.</string>
     <string name="camera_preview">Camera preview. Pinch to zoom.</string>
     <string name="zoom_in">Zoom in</string>
     <string name="zoom_out">Zoom out</string>
     <string name="zoom_in_symbol">+</string>
     <string name="zoom_out_symbol">−</string>
     <string name="take_photo">Take photo</string>
-    <string name="take_photo_description">Tap to photograph and read. Hold for at least 400 milliseconds and speak to ask a question.</string>
+    <string name="take_photo_description">Tap to take a photo. Hold for at least 400 milliseconds and speak to ask a question about it.</string>
     <string name="capturing">Holding still…</string>
     <string name="reading_text">Reading the text…</string>
 
@@ -24,8 +24,11 @@
         <item quantity="other">%d blocks of text</item>
     </plurals>
     <string name="no_text_found">No text found in this photo. You can still hold Ask and speak to ask about it.</string>
-    <string name="read_all">Read all</string>
-    <string name="read_all_description">Read every block of text aloud, in order.</string>
+    <string name="read_all">Read all text</string>
+    <string name="read_all_description">Read all the text in the photo aloud, in order.</string>
+    <string name="summarize">Summarize</string>
+    <string name="summarize_description">Hear a short summary of what the photo shows.</string>
+    <string name="holding_to_talk">Listening. Release to send.</string>
     <string name="new_photo">New photo</string>
     <string name="new_photo_description">Go back to the camera and take another photo.</string>
     <string name="tap_box_to_read">Tap a highlighted box to hear that text.</string>
@@ -35,6 +38,7 @@
     <string name="hold_to_ask">Hold to ask</string>
     <string name="hold_to_ask_description">Hold and speak to ask a question about the photo.</string>
     <string name="listening">Listening…</string>
+    <string name="finishing_question">Finishing your question…</string>
     <string name="nothing_heard">I did not hear a question. Hold the button, speak, then let go.</string>
     <string name="no_frame">No camera frame was ready. Try again.</string>
     <string name="startup_camera">Starting the camera…</string>
@@ -43,37 +47,32 @@
     <string name="camera_required">ImageSpeech needs the camera to work.</string>
     <string name="mic_optional">Without the microphone, you can read the text but not ask questions.</string>
     <string name="processing_settings">Processing settings</string>
-    <string name="gemini_api_key">Gemini API key</string>
-    <string name="show_api_key">Show key</string>
-    <string name="share_key_qr">Share key as QR</string>
-    <string name="scan_key_qr">Scan key</string>
-    <string name="import_key_qr_image">Import QR image</string>
-    <string name="shared_key_qr">Shared Gemini key</string>
-    <string name="shared_key_qr_description">QR code containing the saved Gemini API key</string>
-    <string name="shared_key_warning">Anyone with this QR code can use your key and shared quota.</string>
-    <string name="scan_key_prompt">Scan an ImageSpeech Gemini key QR code</string>
-    <string name="qr_camera_denied">Camera access was denied. You can still import a QR image or enter the key manually.</string>
-    <string name="qr_scan_cancelled">QR scanning was cancelled. Your saved key was not changed.</string>
-    <string name="qr_import_cancelled">QR image import was cancelled. Your saved key was not changed.</string>
-    <string name="qr_unreadable">No readable QR code was found. Choose a clearer image and try again.</string>
-    <string name="qr_unsupported">This is not a supported ImageSpeech Gemini key QR code.</string>
-    <string name="qr_unsupported_version">This ImageSpeech key QR version is not supported.</string>
-    <string name="qr_oversized">That image is too large to import. Choose a smaller QR image.</string>
-    <string name="qr_key_staged">Key scanned. Review it, then tap Save to use it.</string>
-    <string name="qr_generation_failed">The saved key could not be represented as a QR code.</string>
-    <string name="save">Save</string>
-    <string name="clear">Clear</string>
-    <string name="local_processing">Local processing</string>
-    <string name="gemini_processing">Gemini processing</string>
-    <string name="gemini_settings_explanation">Saving a key sends photos and questions directly to Google Gemini. Clearing it keeps processing on this phone. Images may be resent with follow-up questions.</string>
-    <string name="gemini_required_for_questions">Add a Gemini API key in Processing settings to ask questions. Tap Take photo to read locally.</string>
+    <string name="local_processing">Local processing (OCR)</string>
+    <string name="gemma_processing">On-device Gemma active</string>
+    <string name="gemma_failed_to_start">Gemma could not start on this phone. Using local OCR.</string>
+    <string name="gemma_settings_explanation">Download Google\'s Gemma 4 E2B model once to read and answer typed or spoken questions entirely on this phone. Photos never leave the device. Spoken questions are turned into text by the phone\'s speech recognizer, which runs on the phone when one is available. The model needs about 2.6 GB of storage and a few gigabytes of free memory while running. Without it, local OCR reads text.</string>
+    <string name="gemma_not_downloaded">Not downloaded (%1$.1f GB, Wi-Fi only).</string>
+    <string name="gemma_downloaded">Model downloaded.</string>
+    <string name="gemma_waiting_for_wifi">Download queued. Waiting for Wi-Fi…</string>
+    <string name="gemma_download_paused">Download paused at %1$d%%.</string>
+    <string name="gemma_download_failed">Download failed. Try again.</string>
+    <string name="gemma_download_channel">Model download</string>
+    <string name="gemma_download_title">Downloading Gemma</string>
+    <string name="gemma_download_progress">Downloading Gemma… %1$d%%</string>
+    <string name="download_gemma">Download Gemma</string>
+    <string name="gemma_disabled_low_memory">Gemma is off: this phone ran out of memory while using it. Using local OCR.</string>
+    <string name="enable_gemma">Try Gemma again</string>
+    <string name="gemma_small_phone_note">This phone has limited memory, so Gemma runs on the CPU and loads after each photo is taken. The first answer can take about 40 seconds; follow-ups are faster.</string>
+    <string name="cancel_download">Cancel download</string>
+    <string name="delete_gemma">Delete Gemma</string>
+    <string name="delete_gemma_confirm">Delete the downloaded Gemma model? Questions will be unavailable until you download it again. Local reading keeps working.</string>
+    <string name="gemma_required_for_questions">Questions need the on-device Gemma model. See Processing settings. Tap Take photo to read with local OCR.</string>
     <string name="mic_permission_then_hold">Microphone access is ready. Hold the button again and speak.</string>
     <string name="mic_denied">Microphone access was denied. You can still type a question.</string>
     <string name="type_question">Type a question about the photo</string>
     <string name="type_question_first">Type a question first.</string>
-    <string name="add_view">Add another view</string>
     <string name="retry">Retry</string>
     <string name="read_locally">Read locally</string>
-    <string name="replay_response">Replay this response without contacting Gemini.</string>
+    <string name="replay_response">Replay this response without generating it again.</string>
     <string name="processing_changed">Processing mode changed. Start the request again.</string>
 </resources>
