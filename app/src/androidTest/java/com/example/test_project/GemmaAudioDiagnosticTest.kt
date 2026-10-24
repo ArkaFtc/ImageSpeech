@@ -58,7 +58,7 @@ class GemmaAudioDiagnosticTest {
             }
             val photo = GemmaImageSpeechProcessor.encodeJpeg(photo(3060, 4080))
             val preface = ModelPrompt(listOf(photo), null, GemmaImageSpeechProcessor.PREFACE_TEXT)
-            val question = "Action: Ask. User question: What large word is at the top of the page?"
+            val question = "What large word is at the top of the page?"
             suspend fun timed(name: String, session: com.example.test_project.ondevice.ModelSession, prompt: ModelPrompt): String {
                 val t0 = android.os.SystemClock.elapsedRealtime()
                 var first = -1L
@@ -77,7 +77,7 @@ class GemmaAudioDiagnosticTest {
             val h = model.open(emptyList(), preface)
             Log.i(TAG, "H preface prefill ms=${android.os.SystemClock.elapsedRealtime() - t0}")
             timed("H question after preface", h, ModelPrompt(emptyList(), null, question))
-            timed("H follow-up", h, ModelPrompt(emptyList(), null, "Action: Ask. User question: How many lines of small text are there, roughly?"))
+            timed("H follow-up", h, ModelPrompt(emptyList(), null, "How many lines of small text are there, roughly?"))
             h.close()
 
             // I: preface, a read cancelled partway, then a question on the same conversation.

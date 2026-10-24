@@ -48,7 +48,13 @@ class GemmaImageSpeechProcessor(
     /** Wraps every load and generation, so a low-memory kill can be recognised on the next launch. */
     private val whileBusy: suspend (suspend () -> Unit) -> Unit = { it() },
 ) : ImageSpeechProcessor {
-    private class Turn(val images: List<Bitmap>, val audioWav: ByteArray?, val text: String, val reply: String)
+    /**
+     * One completed exchange. [images] are only the photos this turn introduced: photos enter the
+     * conversation in their own turn, which the model answers before any request is asked.
+     */
+    private class Turn(val images: List<Bitmap>, val audioWav: ByteArray?, val text: String, val reply: String) {
+        val tokens: Int get() = estimate(images.size, audioWav, text.length + reply.length)
+    }
 
     private val generation = Mutex()
     private val guard = Any()
@@ -127,6 +133,30 @@ class GemmaImageSpeechProcessor(
                 return@busy
             }
 
+            var inputBytes = 0
+            if (newImages.isNotEmpty()) {
+                // Another view on a live conversation. It goes in as its own exchange, like the
+                // first photo, so the question that follows is never in the same turn as a photo.
+                val photos = ModelPrompt(newImages.map { byImage.getValue(it) }, null, ANOTHER_VIEW_TEXT)
+                inputBytes += photos.images.sumOf { it.size }
+                val ok = try {
+                    val reply = StringBuilder()
+                    session.send(photos).collect { reply.append(it) }
+                    val turn = Turn(newImages, null, ANOTHER_VIEW_TEXT, reply.toString().trim().ifEmpty { PREFACE_REPLY })
+                    commitPhotos(mySubject, session, turn)
+                    true
+                } catch (cancelled: CancellationException) {
+                    discardLive(session)
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w(TAG, "Gemma could not take the new photo", error)
+                    discardLive(session)
+                    send(ReadingEvent.Failure(describe(error), canRetry = true, canReadLocally = true))
+                    false
+                }
+                if (!ok) return@busy
+            }
+
             if (request.action == ProcessingAction.PREPARE) {
                 // The photo is processed and waiting; nothing is read until the user asks for it.
                 send(ReadingEvent.Status(PHOTO_READY))
@@ -134,8 +164,8 @@ class GemmaImageSpeechProcessor(
                 return@busy
             }
 
-            val prompt = ModelPrompt(newImages.map { byImage.getValue(it) }, audioWav, text)
-            val inputBytes = prompt.images.sumOf { it.size } + (audioWav?.size ?: 0)
+            val prompt = ModelPrompt(emptyList(), audioWav, text)
+            inputBytes += audioWav?.size ?: 0
             val sentences = Channel<String>(SPEECH_LOOKAHEAD)
             var firstTextMs: Long? = null
             var firstAudioMs: Long? = null
@@ -166,13 +196,13 @@ class GemmaImageSpeechProcessor(
             } catch (error: Exception) {
                 failure = error
             } finally {
-                if (interrupted && newImages.isEmpty()) {
+                if (interrupted) {
                     // Stopped by the user or a newer request. The conversation, with its processed
                     // photos, stays usable; keeping it is what makes the next question fast.
                     keepInterrupted(session, audioWav, text.length + reply.length)
                 } else if (!completed) {
-                    // A failed or empty turn, or one interrupted while a new photo was going in,
-                    // leaves the native conversation in an unknown state. Rebuild next time.
+                    // A failed or empty turn leaves the native conversation in an unknown state.
+                    // Rebuild next time.
                     discardLive(session)
                 }
             }
@@ -198,7 +228,7 @@ class GemmaImageSpeechProcessor(
             sentences.close()
             speech.join()
             val answer = reply.toString().trim()
-            commit(mySubject, Turn(images, audioWav, text, answer), newImages)
+            commit(mySubject, Turn(emptyList(), audioWav, text, answer), images)
             val total = clock() - started
             // Off unless enabled for troubleshooting: adb shell setprop log.tag.GemmaAnswers DEBUG
             if (Log.isLoggable(ANSWER_LOG_TAG, Log.DEBUG)) {
@@ -256,26 +286,27 @@ class GemmaImageSpeechProcessor(
         synchronized(guard) {
             if (opening != null) return
             val mySubject = subject
-            val turns = fitHistory(images, audioWav, text)
-            val carried = turns.flatMap { it.images }.toSet()
-            val preface = images.filterNot { it in carried }
-            val historyTurns = turns.map { turn ->
+            val kept = fitHistory(images, audioWav, text)
+            val carried = kept.flatMap { it.images }.toSet()
+            // Photos the kept turns do not hold get their own exchange with a short reply. A photo
+            // left as the last user message, or sent in the same message as the question, made
+            // Gemma repeat the question back instead of answering it (measured on device).
+            val photoTurn = images.filterNot { it in carried }.takeIf { it.isNotEmpty() }
+                ?.let { Turn(it, null, PREFACE_TEXT, PREFACE_REPLY) }
+            val turns = kept + listOfNotNull(photoTurn)
+            val modelTurns = turns.map { turn ->
                 ModelTurn(ModelPrompt(turn.images.mapNotNull { encoded[it] }, turn.audioWav, turn.text), turn.reply)
             }
-            val prefacePrompt = preface.takeIf { it.isNotEmpty() }?.let { photos ->
-                ModelPrompt(photos.mapNotNull { encoded[it] }, null, PREFACE_TEXT)
-            }
-            val tokens = turns.sumOf { estimate(it.images.size, it.audioWav, it.text.length + it.reply.length) } +
-                (prefacePrompt?.let { estimate(it.images.size, null, PREFACE_TEXT.length) } ?: 0)
             val job = background.async {
                 whileBusy {
-                    val opened = model.open(historyTurns, prefacePrompt)
+                    val opened = model.open(modelTurns)
                     val adopted = synchronized(guard) {
                         if (subject != mySubject) return@synchronized false
                         live = opened
-                        liveImages = carried + preface
-                        liveTokens = tokens
+                        liveImages = turns.flatMap { it.images }.toSet()
+                        liveTokens = turns.sumOf { it.tokens }
                         liveInterrupted = false
+                        photoTurn?.let { history.addLast(it) }
                         true
                     }
                     // A new subject was started meanwhile; this conversation is about the old one.
@@ -288,39 +319,47 @@ class GemmaImageSpeechProcessor(
     }
 
     /**
-     * Oldest turns go first. An image introduced by a dropped turn moves to the next turn when it
-     * is still part of the subject, so trimming never loses the photo the conversation is about.
+     * Oldest turns go first. Turns holding a photo the request still uses are never dropped, so
+     * trimming never loses the photo the conversation is about.
      */
     private fun fitHistory(images: List<Bitmap>, audioWav: ByteArray?, text: String): List<Turn> {
         val turns = history.toMutableList()
         fun total(): Int {
             val carried = turns.flatMap { it.images }.toSet()
             val newCost = estimate(images.count { it !in carried }, audioWav, text.length)
-            return turns.sumOf { estimate(it.images.size, it.audioWav, it.text.length + it.reply.length) } + newCost
+            return turns.sumOf { it.tokens } + newCost
         }
-        while (turns.isNotEmpty() && total() + outputTokens > contextTokens) {
-            val dropped = turns.removeAt(0)
-            val next = turns.firstOrNull() ?: break
-            val keep = (dropped.images + next.images).distinct().filter { it in images }.takeLast(GemmaConfig.MAX_IMAGES)
-            turns[0] = Turn(keep, next.audioWav, next.text, next.reply)
+        while (total() + outputTokens > contextTokens) {
+            val droppable = turns.indexOfFirst { turn -> turn.images.none { it in images } }
+            if (droppable < 0) break
+            turns.removeAt(droppable)
         }
         return turns
     }
 
-    private fun commit(mySubject: Int, turn: Turn, sentImages: List<Bitmap>) {
+    /** Records a completed request. [images] are the photos the request was about. */
+    private fun commit(mySubject: Int, turn: Turn, images: List<Bitmap>) {
         synchronized(guard) {
             if (mySubject != subject) return
             history.addLast(turn)
-            while (history.size > GemmaConfig.MAX_COMPLETED_TURNS) {
-                val dropped = history.removeFirst()
-                val next = history.first()
-                val keep = (dropped.images + next.images).distinct().takeLast(GemmaConfig.MAX_IMAGES)
-                history[0] = Turn(keep, next.audioWav, next.text, next.reply)
+            // Photos no longer part of the subject are not carried into a rebuilt conversation.
+            history.removeAll { old -> old.images.isNotEmpty() && old.images.none { it in images } }
+            while (history.count { it.images.isEmpty() } > GemmaConfig.MAX_COMPLETED_TURNS) {
+                history.removeAt(history.indexOfFirst { it.images.isEmpty() })
             }
-            liveImages = liveImages + sentImages
-            liveTokens += estimate(sentImages.size, turn.audioWav, turn.text.length + turn.reply.length)
+            liveTokens += turn.tokens
             val referenced = history.flatMap { it.images }.toSet()
             encoded.keys.retainAll(referenced)
+        }
+    }
+
+    /** Records a photo added to the live conversation [session]. */
+    private fun commitPhotos(mySubject: Int, session: ModelSession, turn: Turn) {
+        synchronized(guard) {
+            if (mySubject != subject || live !== session) return
+            history.addLast(turn)
+            liveImages = liveImages + turn.images
+            liveTokens += turn.tokens
         }
     }
 
@@ -374,18 +413,28 @@ class GemmaImageSpeechProcessor(
             ProcessingAction.READ, ProcessingAction.READ_ALL -> "Reading on this phone…"
         }
 
-        /** Sent with photos processed ahead of any request. */
-        const val PREFACE_TEXT = "These are the photos for the requests that follow."
+        /**
+         * Photos processed ahead of any request go in as this exchange, with a written reply.
+         * Measured on device with a real photo: with the photo left as the last user message, or
+         * a bare "OK." reply, some questions came back repeated instead of answered.
+         */
+        const val PREFACE_TEXT = "Here is a photo."
+        const val PREFACE_REPLY = "I can see the photo. What would you like to know?"
 
-        /** The action and question travel separately from the system prompt. */
+        /** Adds a photo to a live conversation; the model's short reply becomes part of it. */
+        const val ANOTHER_VIEW_TEXT = "Here is another photo of the same thing. Reply only: I can see it."
+
+        /**
+         * The request, separate from the system prompt. Questions go in exactly as asked: wrapping
+         * them in a label such as "User question:" made Gemma repeat the question back.
+         */
         fun instruction(action: ProcessingAction, question: String): String = when (action) {
             ProcessingAction.PREPARE -> ""
-            ProcessingAction.SUMMARIZE -> "Action: Summarize. Briefly say what this is and the most important information in it."
-            ProcessingAction.READ -> "Action: Read. Read the meaningful visible text faithfully in logical order."
-            ProcessingAction.READ_ALL -> "Action: Read all visible text. Include peripheral text, page numbers, running headers, labels, and other visible wording."
+            ProcessingAction.SUMMARIZE -> "Briefly say what this is and the most important information in it."
+            ProcessingAction.READ -> "Read the meaningful visible text faithfully in logical order."
+            ProcessingAction.READ_ALL -> "Read all visible text, including peripheral text, page numbers, running headers, labels, and other visible wording."
             ProcessingAction.ASK ->
-                if (question.isNotEmpty()) "Action: Ask. User question: $question"
-                else "Action: Ask. Listen to the attached audio and answer that spoken request directly."
+                question.ifEmpty { "Answer the spoken question in the attached audio." }
         }
 
         fun estimate(images: Int, audioWav: ByteArray?, chars: Int): Int {

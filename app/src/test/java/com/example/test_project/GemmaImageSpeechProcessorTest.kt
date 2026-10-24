@@ -53,7 +53,8 @@ class GemmaImageSpeechProcessorTest {
         val openStarted = CompletableDeferred<Unit>()
 
         /** Photos the model was given up front, per opened conversation. */
-        fun prefaceImages(index: Int) = prefaces[index]?.images?.size ?: 0
+        fun photosAtOpen(index: Int) =
+            opened[index].sumOf { it.prompt.images.size } + (prefaces[index]?.images?.size ?: 0)
 
         override suspend fun open(history: List<ModelTurn>, preface: ModelPrompt?): ModelSession {
             prefaces += preface
@@ -133,7 +134,11 @@ class GemmaImageSpeechProcessorTest {
 
         val prepared = gemma.process(ProcessingRequest(photo, action = ProcessingAction.PREPARE)).toList()
 
-        assertEquals(1, model.prefaceImages(0))
+        assertEquals(1, model.photosAtOpen(0))
+        assertEquals("the photo is not left as a trailing user message", null, model.prefaces[0])
+        val photoTurn = model.opened[0].single()
+        assertEquals(1, photoTurn.prompt.images.size)
+        assertEquals(GemmaImageSpeechProcessor.PREFACE_REPLY, photoTurn.reply)
         assertTrue("nothing generated", model.prompts.isEmpty())
         assertTrue("nothing spoken", spoken.isEmpty())
         assertTrue(prepared.none { it is ReadingEvent.TextDelta || it is ReadingEvent.Audio })
@@ -151,7 +156,7 @@ class GemmaImageSpeechProcessorTest {
         val model = FakeModel(FakeModel.Chunks("A box of maple cookies."))
         processor(model).process(ProcessingRequest(bitmap(), action = ProcessingAction.SUMMARIZE)).toList()
 
-        assertTrue(model.prompts[0].text.startsWith("Action: Summarize."))
+        assertTrue(model.prompts[0].text.startsWith("Briefly say what this is"))
     }
 
     @Test
@@ -164,24 +169,31 @@ class GemmaImageSpeechProcessorTest {
         gemma.process(ask(photo, "What does it mean?")).toList()
 
         assertEquals(1, model.opened.size)
-        assertEquals("the photo is processed when the conversation opens", 1, model.prefaceImages(0))
+        assertEquals("the photo is processed when the conversation opens", 1, model.photosAtOpen(0))
         assertEquals(0, model.prompts[0].images.size)
         assertEquals(0, model.prompts[1].images.size)
-        assertTrue(model.prompts[1].text.contains("What does it mean?"))
+        assertEquals("the question goes in exactly as asked", "What does it mean?", model.prompts[1].text)
     }
 
     @Test
     fun anotherViewSendsOnlyTheNewPhoto() = runTest {
-        val model = FakeModel(FakeModel.Chunks("Front."), FakeModel.Chunks("Back."))
+        val model = FakeModel(FakeModel.Chunks("Front."), FakeModel.Chunks("OK."), FakeModel.Chunks("Back."))
         val gemma = processor(model)
         val front = bitmap()
         val back = bitmap()
 
         gemma.process(read(front)).toList()
-        gemma.process(ask(front, "And the back?", listOf(back))).toList()
+        val events = gemma.process(ask(front, "And the back?", listOf(back))).toList()
 
+        assertEquals(1, model.opened.size)
+        assertEquals(GemmaImageSpeechProcessor.ANOTHER_VIEW_TEXT, model.prompts[1].text)
         assertEquals(1, model.prompts[1].images.size)
         assertArrayEquals(byteArrayOf(System.identityHashCode(back).toByte()), model.prompts[1].images[0])
+        // The question comes in its own turn, and the photo's reply is neither shown nor spoken.
+        assertEquals(0, model.prompts[2].images.size)
+        assertTrue(model.prompts[2].text.contains("And the back?"))
+        assertEquals("Back.", (events.last() as ReadingEvent.Complete).responseText)
+        assertFalse(spoken.contains("OK."))
     }
 
     @Test
@@ -204,11 +216,36 @@ class GemmaImageSpeechProcessorTest {
         gemma.process(ask(photo, "How long?")).toList()
         assertEquals(2, model.opened.size)
         val rebuilt = model.opened[1]
-        assertEquals(1, rebuilt.size)
-        assertEquals("It is a warranty card.", rebuilt[0].reply)
+        assertEquals(2, rebuilt.size)
         assertEquals(1, rebuilt[0].prompt.images.size)
+        assertEquals(GemmaImageSpeechProcessor.PREFACE_REPLY, rebuilt[0].reply)
+        assertEquals(0, rebuilt[1].prompt.images.size)
+        assertEquals("It is a warranty card.", rebuilt[1].reply)
+        assertEquals(null, model.prefaces[1])
         // The rebuilt conversation already holds the photo, so it is not attached again.
         assertEquals(0, model.prompts[2].images.size)
+    }
+
+    @Test
+    fun rebuiltConversationHoldsThePhotoOnce() = runTest {
+        val model = FakeModel(
+            FakeModel.Chunks("A cookie box."),
+            FakeModel.Chunks("Tea."),
+            FakeModel.FailAfter(),
+            FakeModel.Chunks("Yes."),
+        )
+        val gemma = processor(model)
+        val photo = bitmap()
+
+        gemma.process(read(photo)).toList()
+        gemma.process(ask(photo, "What goes with them?")).toList()
+        gemma.process(ask(photo, "Are they sweet?")).toList()
+        gemma.process(ask(photo, "Are they sweet?")).toList()
+
+        assertEquals(2, model.opened.size)
+        assertEquals(1, model.photosAtOpen(1))
+        assertEquals(listOf(GemmaImageSpeechProcessor.PREFACE_REPLY, "A cookie box.", "Tea."), model.opened[1].map { it.reply })
+        assertTrue("no question is sent with a photo", model.prompts.all { it.images.isEmpty() })
     }
 
     @Test
@@ -271,7 +308,7 @@ class GemmaImageSpeechProcessorTest {
 
         assertEquals(2, model.opened.size)
         assertTrue(model.sessions[0].closed)
-        assertEquals(1, model.prefaceImages(1))
+        assertEquals(1, model.photosAtOpen(1))
     }
 
     @Test
@@ -285,8 +322,8 @@ class GemmaImageSpeechProcessorTest {
         gemma.process(read(bitmap())).toList()
 
         assertEquals(2, model.opened.size)
-        assertTrue(model.opened[1].isEmpty())
-        assertEquals(1, model.prefaceImages(1))
+        assertEquals("only the new photo", 1, model.opened[1].size)
+        assertEquals(1, model.photosAtOpen(1))
     }
 
     @Test
@@ -300,8 +337,8 @@ class GemmaImageSpeechProcessorTest {
         gemma.process(ask(photo, "Summarize it")).toList()
 
         assertEquals(2, model.opened.size)
-        assertTrue("the oversized turn is dropped", model.opened[1].isEmpty())
-        assertEquals("the photo is processed again", 1, model.prefaceImages(1))
+        assertEquals("the oversized turn is dropped", listOf(GemmaImageSpeechProcessor.PREFACE_REPLY), model.opened[1].map { it.reply })
+        assertEquals("the photo is processed again", 1, model.photosAtOpen(1))
     }
 
     @Test

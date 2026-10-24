@@ -55,14 +55,7 @@ class ProcessorRouter(
     /** Lets the user try Gemma again after it was turned off for running out of memory. */
     fun enableGemma() = gemmaHealth.enable()
 
-    private val cacheDir = context.applicationContext.cacheDir
-
     override fun process(request: ProcessingRequest): Flow<ReadingEvent> {
-        // Troubleshooting only (adb shell setprop log.tag.GemmaAnswers DEBUG): keep the photo
-        // Gemma is shown, so a bad answer can be reproduced on the device.
-        if (android.util.Log.isLoggable("GemmaAnswers", android.util.Log.DEBUG)) {
-            runCatching { java.io.File(cacheDir, "last-photo.jpg").writeBytes(GemmaImageSpeechProcessor.encodeJpeg(request.image)) }
-        }
         return when (ProcessingSelector.select(isGemmaReady, request.action)) {
             ProcessingLane.GEMMA -> gemma.process(request)
             ProcessingLane.LOCAL -> local.process(request)

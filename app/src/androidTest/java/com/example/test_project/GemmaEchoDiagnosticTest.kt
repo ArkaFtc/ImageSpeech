@@ -13,7 +13,6 @@ import com.example.test_project.ondevice.GemmaProfile
 import com.example.test_project.ondevice.LiteRtGemmaModel
 import com.example.test_project.ondevice.ModelPrompt
 import com.example.test_project.ondevice.ModelTurn
-import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
@@ -40,38 +39,58 @@ class GemmaEchoDiagnosticTest {
             else -> GemmaImageSpeechProcessor.encodeJpeg(box())
         }
         Log.i(TAG, "photo ${if (screen.isFile) "from screenshot" else if (saved.isFile) "saved from app" else "synthetic"} bytes=${photo.size}")
-        val preface = ModelPrompt(listOf(photo), null, GemmaImageSpeechProcessor.PREFACE_TEXT)
-        val question = "Action: Ask. User question: What can I eat these with?"
+        val questions = listOf(
+            "What can I eat these with?",
+            "Is this a healthy snack?",
+            "What is this?",
+            "What flavor are they?",
+            "Explain what the text says in one sentence.",
+        )
         val profile = GemmaProfile.forDevice(context)
 
-        suspend fun trial(model: LiteRtGemmaModel, layout: String, n: Int) {
+        /**
+         * Layouts: A = photo as a trailing user turn (no reply), B = photo turn answered "OK.",
+         * G = photo turn with a natural reply, D = photo and question in one turn.
+         * Wording: p = "Action: Ask. User question: ...", q = the bare question.
+         */
+        suspend fun trial(model: LiteRtGemmaModel, layout: Char, wording: Char, question: String) {
+            val text = if (wording == 'p') "Action: Ask. User question: $question" else question
+            val preface = ModelPrompt(listOf(photo), null, GemmaImageSpeechProcessor.PREFACE_TEXT)
+            val started = System.currentTimeMillis()
             val session = when (layout) {
-                "B" -> model.open(listOf(ModelTurn(preface, "OK.")), null)
-                "D" -> model.open(emptyList(), null)
+                'B' -> model.open(listOf(ModelTurn(preface, "OK.")), null)
+                'G' -> model.open(listOf(ModelTurn(ModelPrompt(listOf(photo), null, "Here is a photo."), "I can see the photo. What would you like to know?")), null)
+                'D' -> model.open(emptyList(), null)
                 else -> model.open(emptyList(), preface)
             }
-            val ask = if (layout == "D") ModelPrompt(listOf(photo), null, question) else ModelPrompt(emptyList(), null, question)
-            val reply = session.send(ask).toList().joinToString("").trim()
-            session.close()
-            val echo = reply.lowercase().startsWith("what can") || reply.lowercase().contains("user question")
-            Log.i(TAG, "$layout#$n echo=$echo -> ${reply.take(140).replace('\n', ' ')}")
+            val opened = System.currentTimeMillis()
+            val ask = ModelPrompt(if (layout == 'D') listOf(photo) else emptyList(), null, text)
+            val reply = try { session.send(ask).toList().joinToString("").trim() } finally { session.close() }
+            val echo = isEcho(question, reply)
+            Log.i(TAG, "$layout$wording q${questions.indexOf(question)} echo=$echo openMs=${opened - started} -> ${reply.take(220).replace('\n', ' ')}")
         }
 
-        val random = LiteRtGemmaModel(context, store, profile)
+        // Each step is a layout and wording, run once per question (replies are deterministic): -e plan Aq,Bp
+        val plan = InstrumentationRegistry.getArguments().getString("plan") ?: "Aq,Bp,Gq,Gp"
+        val model = LiteRtGemmaModel(context, store, profile)
         try {
-            random.warmUp()
-            repeat(5) { trial(random, "A", it) }
-            repeat(5) { trial(random, "B", it) }
-            repeat(3) { trial(random, "D", it) }
+            for (step in plan.split(',')) {
+                for (question in questions) trial(model, step[0], step[1], question)
+            }
         } finally {
-            random.close()
+            model.close()
         }
-        val greedy = LiteRtGemmaModel(context, store, profile, SamplerConfig(1, 1.0, 0.0, 0))
-        try {
-            repeat(3) { trial(greedy, "C", it) }
-        } finally {
-            greedy.close()
-        }
+    }
+
+    /** The reply restates the question instead of answering it. */
+    private fun isEcho(question: String, reply: String): Boolean {
+        fun words(s: String) = s.lowercase().replace(Regex("[^a-z ]"), " ").split(' ').filter { it.isNotBlank() }
+        val r = words(reply)
+        val q = words(question)
+        if (r.isEmpty()) return false
+        val overlap = r.take(q.size).count { it in q }
+        return reply.trim().endsWith("?") && r.size <= q.size + 3 && overlap >= q.size - 2 ||
+            reply.lowercase().contains("user question")
     }
 
     /** A cookie box front: brand, product name and a serving line. */
