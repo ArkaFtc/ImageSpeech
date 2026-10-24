@@ -18,6 +18,8 @@ The camera stays inside a bordered viewfinder. Pinch the preview or use the −/
 
 Capture requests a 2560 x 1920 still with the closest supported resolution. A short sharpest-frame burst is the fallback if still capture fails. The photo remains full-size behind the review UI, and locally recognized passages are highlighted at their image coordinates. Tap a highlighted box to read that passage aloud. Gemma text has no image coordinates, so it appears in a readable overlay without fabricated bounding boxes. Stop, New photo, and Back cancel processing and playback.
 
+**Repeat** speaks whatever the text box at the top shows (the last answer, or the passage last tapped) with the phone's voice, without another Gemma request. **A−** / **A+** on the review screen, also in Processing settings, change the size of all text in the app (85–200%, on top of the phone's font size) and are remembered. At 130% and above, Read all text, Summarize and Stop stack vertically so words are not broken. The app draws edge to edge, so it handles the keyboard itself: the screen ends above the keyboard, and while typing the answer box takes the photo's space and the other controls hide. Send on the keyboard asks the question.
+
 PPOCR detects rotated text regions and recognizes perspective-corrected line crops. Layout ordering groups columns and passages. Low-confidence recognition gets a second crop attempt; uncertain passages remain visible and are announced as uncertain. Recognition confidence is imperfect, and formulas, clipped text, illustrations, and complex tables still need care.
 
 ## Architecture

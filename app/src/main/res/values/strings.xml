@@ -75,4 +75,15 @@
     <string name="read_locally">Read locally</string>
     <string name="replay_response">Replay this response without generating it again.</string>
     <string name="processing_changed">Processing mode changed. Start the request again.</string>
+
+    <string name="repeat">Repeat</string>
+    <string name="repeat_description">Say the text in the box at the top again.</string>
+    <string name="text_smaller_symbol">A−</string>
+    <string name="text_larger_symbol">A+</string>
+    <string name="text_smaller">Smaller text</string>
+    <string name="text_larger">Larger text</string>
+    <string name="text_size">Text size</string>
+    <string name="text_size_now">Text size %1$d%%</string>
+    <string name="text_size_smallest">Smallest text size (%1$d%%)</string>
+    <string name="text_size_largest">Largest text size (%1$d%%)</string>
 </resources>

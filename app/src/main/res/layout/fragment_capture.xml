@@ -53,19 +53,21 @@
 
             <Button
                 android:id="@+id/btnZoomOut"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:minWidth="0dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
                 android:text="@string/zoom_out_symbol"
                 android:textSize="24sp"
                 android:contentDescription="@string/zoom_out" />
 
             <Button
                 android:id="@+id/btnZoomIn"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
                 android:layout_marginStart="8dp"
-                android:minWidth="0dp"
+                android:minWidth="48dp"
                 android:text="@string/zoom_in_symbol"
                 android:textSize="22sp"
                 android:contentDescription="@string/zoom_in" />
@@ -75,8 +77,9 @@
     <Button
         android:id="@+id/btnShutter"
         android:layout_width="match_parent"
-        android:layout_height="88dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
+        android:minHeight="88dp"
         android:textSize="22sp"
         android:text="@string/take_photo"
         android:contentDescription="@string/take_photo_description" />

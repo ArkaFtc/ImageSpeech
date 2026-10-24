@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- A text view's original size, so text size steps never compound. -->
+    <item name="tag_base_text_size" type="id" />
+</resources>

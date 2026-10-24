@@ -8,11 +8,16 @@ import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +28,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.test_project.MainActivity
 import com.example.test_project.ImageSpeechViewModel
 import com.example.test_project.R
+import com.example.test_project.TextScale
 import com.example.test_project.contract.ProcessingRequest
 import com.example.test_project.contract.ProcessingAction
 import com.example.test_project.contract.RecordedAudio
@@ -54,6 +60,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private lateinit var shotImage: ImageView
     private lateinit var player: AudioPlayer
     private lateinit var errorActions: View
+    private lateinit var statusScroll: View
+    private var typing = false
     private var renderedBlocks: List<TextBlock> = emptyList()
     private var renderedResponse = ""
 
@@ -96,19 +104,40 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             else process(null, action = ProcessingAction.SUMMARIZE)
         }
         view.findViewById<View>(R.id.btnReviewSettings).setOnClickListener { host.showProcessingSettings() }
+        view.findViewById<Button>(R.id.btnRepeat).setOnClickListener { repeatShownText() }
+        view.findViewById<Button>(R.id.btnTextSmaller).setOnClickListener { host.changeTextSize(-1) }
+        view.findViewById<Button>(R.id.btnTextLarger).setOnClickListener { host.changeTextSize(1) }
+        statusScroll = view.findViewById(R.id.statusScroll)
+        onTextScaleChanged()
+        // The screen ends above the keyboard (MainActivity). While it is open, the text box takes
+        // the room the photo had, so the answer and the question being typed are both visible.
+        ViewCompat.setOnApplyWindowInsetsListener(view.findViewById(R.id.reviewPanels)) { _, insets ->
+            setTyping(insets.isVisible(WindowInsetsCompat.Type.ime()))
+            insets
+        }
         val typed = view.findViewById<EditText>(R.id.editQuestion)
         questionField = typed
         speech = SpeechInput(requireContext()) { heard ->
             typed.setText(heard)
             typed.setSelection(typed.text.length)
         }
-        view.findViewById<Button>(R.id.btnTypedAsk).setOnClickListener {
+        val typedAsk = view.findViewById<Button>(R.id.btnTypedAsk)
+        typedAsk.setOnClickListener {
             if (!host.hasGemma) {
                 status.setText(R.string.gemma_required_for_questions)
             } else if (typed.text.toString().trim().isEmpty()) {
                 status.setText(R.string.type_question_first)
             } else {
+                hideKeyboard(typed)
                 process(null, action = ProcessingAction.ASK, question = typed.text.toString())
+            }
+        }
+        typed.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) {
+                typedAsk.performClick()
+                true
+            } else {
+                false
             }
         }
         view.findViewById<Button>(R.id.btnRetry).setOnClickListener { appState.retry() }
@@ -159,7 +188,10 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     appState.review.collect { state ->
-                        errorActions.visibility = if (state.failure == null) View.GONE else View.VISIBLE
+                        errorActions.visibility = if (state.failure == null || typing) View.GONE else View.VISIBLE
+                        // Repeat speaks what is already shown; while an answer is still being
+                        // written it would talk over it.
+                        view?.findViewById<Button>(R.id.btnRepeat)?.isEnabled = !state.running
                         val failure = state.failure
                         status.text = when {
                             failure != null && state.response.isNotBlank() -> state.response + "\n\nIncomplete response. " + failure.message
@@ -200,8 +232,9 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             this.text = text
             isAllCaps = false
             contentDescription = getString(R.string.replay_response)
-            setOnClickListener { startVoice { play(host.processor.read(text)) } }
+            setOnClickListener { speak(text) }
         }
+        TextScale.apply(button, host.textScale)
         val margin = (32 * resources.displayMetrics.density).roundToInt()
         blockList.addView(
             button,
@@ -234,6 +267,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             setOnClickListener {
                 startVoice {
                     setBackgroundResource(R.drawable.bg_text_overlay_active)
+                    status.text = block.text
                     try {
                         play(host.processor.read(block.text))
                     } finally {
@@ -335,11 +369,71 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             }
     }
 
+    /** The whole text stays in the box while it is spoken, so Repeat can say all of it again. */
     private suspend fun play(stream: Flow<SpokenAudio>) {
-        stream.collect { audio ->
-            status.text = audio.text
-            player.play(audio)
+        stream.collect { audio -> player.play(audio) }
+    }
+
+    /** Speaks [text] with the phone's voice, showing it in the box. No new model request. */
+    private fun speak(text: String) {
+        if (text.isBlank()) return
+        // Anything still queued from the last answer must not play over this.
+        appState.cancelProcessing()
+        startVoice {
+            status.text = text
+            play(host.processor.read(text))
         }
+    }
+
+    private fun repeatShownText() {
+        speak(status.text.toString().trim())
+    }
+
+    /** The text box grows with the text size, up to a limit that keeps the photo in view. */
+    fun onTextScaleChanged() {
+        if (!this::statusScroll.isInitialized) return
+        if (!typing) setTyping(false)
+        // Large text no longer fits three buttons side by side without breaking words.
+        val row = view?.findViewById<LinearLayout>(R.id.readActions) ?: return
+        val stacked = host.textScale >= STACK_BUTTONS_AT_SCALE
+        row.orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        val gap = (8 * resources.displayMetrics.density).roundToInt()
+        for (i in 0 until row.childCount) {
+            val child = row.getChildAt(i)
+            val params = child.layoutParams as LinearLayout.LayoutParams
+            params.width = if (stacked) LinearLayout.LayoutParams.MATCH_PARENT else 0
+            params.weight = if (stacked) 0f else 1f
+            params.marginStart = if (stacked || i == 0) 0 else gap
+            params.topMargin = if (stacked && i > 0) gap else 0
+            child.layoutParams = params
+        }
+    }
+
+    private fun setTyping(open: Boolean) {
+        typing = open
+        val view = view ?: return
+        val params = statusScroll.layoutParams as LinearLayout.LayoutParams
+        if (open) {
+            params.height = 0
+            params.weight = 1f
+        } else {
+            params.height = (STATUS_HEIGHT_DP * minOf(host.textScale, 1.6f) * resources.displayMetrics.density).roundToInt()
+            params.weight = 0f
+        }
+        statusScroll.layoutParams = params
+        val hiddenWhileTyping = if (open) View.GONE else View.VISIBLE
+        view.findViewById<View>(R.id.reviewSpacer).visibility = hiddenWhileTyping
+        view.findViewById<View>(R.id.textTools).visibility = hiddenWhileTyping
+        view.findViewById<View>(R.id.readActions).visibility = hiddenWhileTyping
+        view.findViewById<View>(R.id.btnAsk).visibility = hiddenWhileTyping
+        if (open) errorActions.visibility = View.GONE
+        else errorActions.visibility = if (appState.review.value.failure == null) View.GONE else View.VISIBLE
+    }
+
+    private fun hideKeyboard(field: EditText) {
+        requireContext().getSystemService(InputMethodManager::class.java)
+            ?.hideSoftInputFromWindow(field.windowToken, 0)
+        field.clearFocus()
     }
 
     private fun stopVoice() {
@@ -360,6 +454,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         if (this::status.isInitialized) {
             status.setText(R.string.processing_changed)
         }
+    }
+
+    private companion object {
+        const val STATUS_HEIGHT_DP = 140
+        const val STACK_BUTTONS_AT_SCALE = 1.3f
     }
 
     override fun onStop() {

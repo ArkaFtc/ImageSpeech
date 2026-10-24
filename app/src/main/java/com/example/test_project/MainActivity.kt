@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
@@ -15,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
@@ -26,6 +28,7 @@ import com.example.test_project.contract.ImageSpeechProcessor
 import com.example.test_project.ondevice.GemmaConfig
 import com.example.test_project.ondevice.GemmaDownloadWorker
 import java.io.File
+import kotlin.math.max
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,6 +44,10 @@ class MainActivity : AppCompatActivity() {
 
     /** Whether questions can be answered: the Gemma model is downloaded and able to start. */
     val hasGemma: Boolean get() = state.processor.isGemmaReady
+
+    /** The app's text size, applied to every screen and dialog (see [TextScale]). */
+    var textScale = 1f
+        private set
 
     private lateinit var startupOverlay: View
     private lateinit var startupDetail: TextView
@@ -64,11 +71,25 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // The app draws edge to edge, so Android no longer resizes it for the keyboard: the
+        // screen ends above the keyboard here instead, keeping the question box visible.
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.mainRoot)) { root, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            root.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            root.setPadding(bars.left, bars.top, bars.right, max(bars.bottom, keyboard.bottom))
             insets
         }
+
+        textScale = TextScale.load(this)
+        TextScale.apply(findViewById(R.id.mainRoot), textScale)
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
+                    TextScale.apply(v, textScale)
+                }
+            },
+            false,
+        )
 
         startupOverlay = findViewById(R.id.startupOverlay)
         startupDetail = findViewById(R.id.txtStartupDetail)
@@ -134,6 +155,26 @@ class MainActivity : AppCompatActivity() {
             .onFailure { android.util.Log.w(TAG, "Gemma not ready", it) }
     }
 
+    // ------------------------------------------------------------------ text size
+
+    /** One step smaller ([direction] -1) or larger (+1), applied everywhere at once and kept. */
+    fun changeTextSize(direction: Int) {
+        val next = TextScale.next(textScale, direction)
+        val percent = TextScale.percent(next)
+        val message = when {
+            next == textScale && direction < 0 -> getString(R.string.text_size_smallest, percent)
+            next == textScale -> getString(R.string.text_size_largest, percent)
+            else -> getString(R.string.text_size_now, percent)
+        }
+        textScale = next
+        TextScale.save(this, next)
+        TextScale.apply(findViewById(R.id.mainRoot), next)
+        settingsDialog?.window?.decorView?.let { TextScale.apply(it, next) }
+        settingsDialog?.findViewById<TextView>(R.id.txtTextSizeValue)?.text = getString(R.string.text_size_now, percent)
+        (supportFragmentManager.findFragmentById(R.id.screen) as? ReviewFragment)?.onTextScaleChanged()
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
     // ------------------------------------------------------------------ processing settings
 
     fun showProcessingSettings() {
@@ -145,6 +186,10 @@ class MainActivity : AppCompatActivity() {
         val delete = content.findViewById<Button>(R.id.btnDeleteGemma)
         val enable = content.findViewById<Button>(R.id.btnEnableGemma)
         val router = state.processor
+        content.findViewById<TextView>(R.id.txtTextSizeValue).text =
+            getString(R.string.text_size_now, TextScale.percent(textScale))
+        content.findViewById<View>(R.id.btnSettingsTextSmaller).setOnClickListener { changeTextSize(-1) }
+        content.findViewById<View>(R.id.btnSettingsTextLarger).setOnClickListener { changeTextSize(1) }
         content.findViewById<View>(R.id.txtDeviceNote).visibility =
             if (router.gemmaProfile.useGpu) View.GONE else View.VISIBLE
 
@@ -212,6 +257,7 @@ class MainActivity : AppCompatActivity() {
         settingsDialog = dialog
         render(null)
         dialog.show()
+        dialog.window?.decorView?.let { TextScale.apply(it, textScale) }
     }
 
     private fun startGemmaDownload() {
