@@ -40,7 +40,9 @@
 
     <string name="hold_to_ask">Hold to ask</string>
     <string name="hold_to_ask_description">Hold and speak to ask a question about the photo.</string>
-    <string name="listening">Listening…</string>
+    <string name="listening">Listening… speak now.</string>
+    <string name="mic_getting_ready">Getting the microphone ready… keep holding.</string>
+    <string name="mic_released_too_soon">Hold the button until it says Listening, then speak.</string>
     <string name="finishing_question">Finishing your question…</string>
     <string name="nothing_heard">I did not hear a question. Hold the button, speak, then let go.</string>
     <string name="no_frame">No camera frame was ready. Try again.</string>

@@ -3,6 +3,8 @@ package com.example.test_project.capture
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -18,8 +20,18 @@ import android.util.Log
  */
 class SpeechInput(
     context: Context,
+    /** The microphone is open. Words spoken before this are not heard. */
+    private val onReady: () -> Unit = {},
     private val onPartial: (String) -> Unit,
 ) {
+    private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * Whether the microphone opened during this press. It takes about half a second after the
+     * press (measured on device), and a press released before then heard nothing.
+     */
+    var isReady = false
+        private set
     private val appContext = context.applicationContext
     private var recognizer: SpeechRecognizer? = null
     private var onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
@@ -43,6 +55,7 @@ class SpeechInput(
         partial = ""
         held = true
         restarts = 0
+        isReady = false
         listen()
     }
 
@@ -57,10 +70,26 @@ class SpeechInput(
             return
         }
         finish = result
-        recognizer?.stopListening()
+        // The last word is often still being said as the button is let go: keep listening a
+        // moment. If the recognizer never answers, deliver what was heard rather than wait forever.
+        main.postDelayed(stopAfterRelease, RELEASE_TAIL_MS)
+        main.postDelayed(giveUp, RELEASE_TAIL_MS + FINISH_TIMEOUT_MS)
+    }
+
+    private val stopAfterRelease = Runnable { if (listening) recognizer?.stopListening() }
+
+    private val giveUp = Runnable {
+        val done = finish ?: return@Runnable
+        Log.w(TAG, "Speech recognizer gave no final result; using what was heard")
+        finish = null
+        listening = false
+        recognizer?.cancel()
+        done(text())
     }
 
     fun cancel() {
+        main.removeCallbacks(stopAfterRelease)
+        main.removeCallbacks(giveUp)
         held = false
         finish = null
         listening = false
@@ -113,6 +142,8 @@ class SpeechInput(
         held = false
         val done = finish ?: return
         finish = null
+        main.removeCallbacks(stopAfterRelease)
+        main.removeCallbacks(giveUp)
         done(text())
     }
 
@@ -137,6 +168,9 @@ class SpeechInput(
 
         override fun onError(error: Int) {
             Log.w(TAG, "Speech recognizer error $error")
+            // A session this class cancelled reports ERROR_CLIENT on this phone. It is not a
+            // failure and must not switch recognizers (measured on device).
+            if (!listening) return
             if (onDevice && error in UNSUPPORTED_ON_DEVICE) {
                 // This phone's on-device recognizer lacks the language; use the system one instead.
                 onDevice = false
@@ -157,7 +191,11 @@ class SpeechInput(
             }
         }
 
-        override fun onReadyForSpeech(params: Bundle?) = Unit
+        override fun onReadyForSpeech(params: Bundle?) {
+            if (isReady) return
+            isReady = true
+            onReady()
+        }
         override fun onBeginningOfSpeech() = Unit
         override fun onRmsChanged(rmsdB: Float) = Unit
         override fun onBufferReceived(buffer: ByteArray?) = Unit
@@ -168,12 +206,12 @@ class SpeechInput(
     private companion object {
         const val TAG = "SpeechInput"
         const val HOLD_SILENCE_MS = 10_000L
+        const val RELEASE_TAIL_MS = 600L
+        const val FINISH_TIMEOUT_MS = 4_000L
         const val MAX_RESTARTS = 3
         val UNSUPPORTED_ON_DEVICE = setOf(
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
             SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
-            SpeechRecognizer.ERROR_SERVER,
-            SpeechRecognizer.ERROR_CLIENT,
         )
         val RETRYABLE_WHILE_HELD = setOf(
             SpeechRecognizer.ERROR_NO_MATCH,

@@ -86,3 +86,7 @@ On first launch a profile page opens over the camera (Save or Skip for now). It 
 - Taking a photo with a spoken question answers the question instead. Without Gemma there is no check.
 - An EXIT sign stayed silent (`GemmaDietDeviceTest.checksFoodAndStaysSilentOtherwise`, measured with an earlier version of the check).
 - The page tells users that checks can miss things and to read the label themselves for a serious allergy.
+
+## Spoken questions
+
+Hold to ask uses the phone's on-device speech recognizer (`capture/SpeechInput.kt`). Measured on the test phone, the microphone opens about half a second after the press, so words said straight away were lost. The status now says "Getting the microphone ready… keep holding" until it is open, then "Listening… speak now" with a short vibration. Listening continues 0.6 seconds after release so the last word is not cut off, and if no final result arrives within 4 more seconds, what was heard is used. A press released before the microphone opened explains that the button must be held. Pressing Hold to ask stops the answer being read, so the microphone does not hear the app's own voice. A session the app cancelled reports a client error on this phone; it is ignored instead of switching to another recognizer.

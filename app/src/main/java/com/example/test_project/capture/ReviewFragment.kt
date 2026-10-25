@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -51,6 +52,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
 
     private val recorder = AudioCapture()
     private var speech: SpeechInput? = null
+    private var askButton: Button? = null
+    private var askHolding: HoldFeedback? = null
     private var questionField: EditText? = null
     /** Whether this press is going through speech to text rather than raw audio. */
     private var transcribing = false
@@ -125,7 +128,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         }
         val typed = view.findViewById<EditText>(R.id.editQuestion)
         questionField = typed
-        speech = SpeechInput(requireContext()) { heard ->
+        speech = SpeechInput(requireContext(), onReady = ::onMicReady) { heard ->
             typed.setText(heard)
             typed.setSelection(typed.text.length)
         }
@@ -291,8 +294,19 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     }
 
     @SuppressLint("ClickableViewAccessibility")
+    /** The microphone opened while Hold to ask is held: show it, so the user knows to speak. */
+    private fun onMicReady() {
+        val button = askButton ?: return
+        if (!button.isPressed) return
+        askHolding?.show()
+        status.setText(R.string.listening)
+        button.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+    }
+
     private fun wireAsk(button: Button) {
         val holding = HoldFeedback(button)
+        askButton = button
+        askHolding = holding
         button.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -315,15 +329,18 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                         return@setOnTouchListener true
                     }
                     view.isPressed = true
-                    holding.show()
                     pressedAt = SystemClock.elapsedRealtime()
-                    status.setText(R.string.listening)
                     val recognizer = speech
                     transcribing = recognizer?.isAvailable == true
                     if (transcribing) {
+                        // "Listening" only once the microphone is really open (onMicReady): it
+                        // takes about half a second, and words said before then were lost.
+                        status.setText(R.string.mic_getting_ready)
                         questionField?.setText("")
                         recognizer?.start()
                     } else {
+                        holding.show()
+                        status.setText(R.string.listening)
                         recorder.start()
                     }
                     true
@@ -333,7 +350,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                     holding.hide()
                     if (!host.hasGemma || MicSetting.isMuted(requireContext()) || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@setOnTouchListener true
                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
-                    if (transcribing) {
+                    if (transcribing && speech?.isReady != true) {
+                        // Let go before the microphone opened: nothing could have been heard.
+                        speech?.cancel()
+                        status.setText(R.string.mic_released_too_soon)
+                    } else if (transcribing) {
                         status.setText(R.string.finishing_question)
                         speech?.finish { question ->
                             if (!isAdded) return@finish
@@ -460,6 +481,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     override fun onDestroyView() {
         speech?.destroy()
         speech = null
+        askButton = null
+        askHolding = null
         questionField = null
         super.onDestroyView()
     }
