@@ -19,6 +19,9 @@ import kotlinx.coroutines.withContext
 /** Playback is capture-side: cancelling the collector immediately releases the speaker. */
 class AudioPlayer(private val context: Context) {
     @Volatile private var active: MediaPlayer? = null
+
+    /** Ends the passage playing now as if it had finished; set while one is playing. */
+    @Volatile private var finishActive: (() -> Unit)? = null
     private var lastReadingStartedAtMs: Long? = null
 
     suspend fun play(audio: SpokenAudio, onStarted: () -> Unit = {}) {
@@ -37,6 +40,7 @@ class AudioPlayer(private val context: Context) {
             player.setAudioAttributes(attributes)
             player.setDataSource(file.path)
             suspendCancellableCoroutine<Unit> { continuation ->
+                finishActive = { if (continuation.isActive) continuation.resume(Unit) }
                 focus =
                     AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                         .setAudioAttributes(attributes)
@@ -81,15 +85,25 @@ class AudioPlayer(private val context: Context) {
                 player.prepareAsync()
             }
         } finally {
-            if (active === player) active = null
+            if (active === player) {
+                active = null
+                finishActive = null
+            }
+            // Releasing also silences a passage that was stopped part way.
             player.release()
             focus?.let(manager::abandonAudioFocusRequest)
             withContext(NonCancellable + Dispatchers.IO) { file.delete() }
         }
     }
 
+    /**
+     * Stops the passage playing now; [play] then returns normally. MediaPlayer.stop() is not used:
+     * while a passage is still loading it reports an error, and once playing it never reports
+     * completion, which left [play] waiting forever.
+     */
     fun stop() {
-        runCatching { active?.stop() }
+        finishActive?.invoke()
+        finishActive = null
         active = null
     }
 }

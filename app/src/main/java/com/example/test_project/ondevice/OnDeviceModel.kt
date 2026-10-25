@@ -32,9 +32,18 @@ interface OnDeviceModel {
 interface ModelSession : AutoCloseable {
     /**
      * Streams only answer text, never thinking content, as fresh fragments. Cancelling the
-     * collection must stop generation, not just stop listening.
+     * collection stops listening; the session may still finish that answer in the background.
      */
     fun send(prompt: ModelPrompt): Flow<String>
+
+    /**
+     * Waits for an answer abandoned by a stopped request to finish. Returns false when the session
+     * can no longer be used and must be rebuilt.
+     */
+    suspend fun settle(): Boolean = true
+
+    /** Tokens the conversation holds, when the runtime reports it. */
+    fun tokenCount(): Int? = null
 }
 
 class GemmaUnavailableException(message: String, cause: Throwable? = null) : Exception(message, cause)

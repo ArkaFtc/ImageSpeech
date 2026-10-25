@@ -74,35 +74,14 @@
         </LinearLayout>
     </FrameLayout>
 
-    <LinearLayout
+    <Button
+        android:id="@+id/btnShutter"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:baselineAligned="false"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btnShutter"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:minHeight="88dp"
-            android:textSize="22sp"
-            android:text="@string/take_photo"
-            android:contentDescription="@string/take_photo_description" />
-
-        <Button
-            android:id="@+id/btnCaptureAsk"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:drawableTop="@drawable/ic_mic_large"
-            android:minHeight="88dp"
-            android:paddingTop="10dp"
-            android:textSize="18sp"
-            android:text="@string/hold_to_ask"
-            android:contentDescription="@string/hold_to_ask_camera_description" />
-    </LinearLayout>
+        android:minHeight="88dp"
+        android:textSize="22sp"
+        android:text="@string/take_photo"
+        android:contentDescription="@string/take_photo_description" />
 
 </LinearLayout>

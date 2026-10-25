@@ -268,6 +268,15 @@ class GemmaImageSpeechProcessor(
                 }
             }
 
+            // A stopped answer may still be finishing on the live conversation.
+            synchronized(guard) { live }?.let { current ->
+                if (!current.settle()) {
+                    discardLive(current)
+                } else {
+                    current.tokenCount()?.let { count -> synchronized(guard) { if (live === current) liveTokens = count } }
+                }
+            }
+
             val (reusable, stale) = synchronized(guard) {
                 val unseen = images.filterNot { it in liveImages }
                 val cost = estimate(unseen.size, audioWav, text.length)

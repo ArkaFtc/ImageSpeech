@@ -12,6 +12,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.ThinkingConfig
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -19,10 +20,13 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Gemma 4 E2B through LiteRT-LM. The engine is expensive to load and cheap to keep, so it is loaded
@@ -147,27 +151,65 @@ private class LiteRtSession(
     private val conversation: Conversation,
     private val dispatcher: CoroutineDispatcher,
 ) : ModelSession {
-    override fun send(prompt: ModelPrompt): Flow<String> = callbackFlow {
+    /**
+     * LiteRT-LM 0.18.1 cannot continue a conversation once an answer is cancelled part way: every
+     * later message is cancelled at once (measured on device, even when sent again). So a stopped
+     * answer is not cancelled. It finishes in the background, unheard, and [settle] waits for it.
+     */
+    @Volatile private var lastMessage: CompletableDeferred<Unit>? = null
+    @Volatile private var broken = false
+
+    override fun send(prompt: ModelPrompt): Flow<String> = flow {
+        if (!settle()) throw IllegalStateException("This Gemma conversation can no longer be used")
+        emitAll(stream(prompt))
+    }
+
+    override suspend fun settle(): Boolean {
+        if (broken) return false
+        val previous = lastMessage ?: return true
+        if (withTimeoutOrNull(SETTLE_TIMEOUT_MS) { previous.await() } != null) return !broken
+        // Too long to wait for. Cancelling ends the conversation, so it is rebuilt.
+        Log.i("Gemma", "Stopped answer still running; cancelling and rebuilding the conversation")
+        runCatching { conversation.cancelProcess() }
+        broken = true
+        return false
+    }
+
+    override fun tokenCount(): Int? = runCatching { conversation.getTokenCount() }.getOrNull()
+
+    private fun stream(prompt: ModelPrompt): Flow<String> = callbackFlow {
+        val finished = CompletableDeferred<Unit>()
+        lastMessage = finished
         val deltas = StreamDeltas()
         val callback = object : MessageCallback {
             override fun onMessage(message: Message) {
                 // Thinking arrives on a separate channel; only answer text is kept.
                 val text = message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
                 val fresh = deltas.fresh(text)
+                // Fails quietly once a stopped request no longer listens.
                 if (fresh.isNotEmpty()) trySend(fresh)
             }
 
             override fun onDone() {
+                finished.complete(Unit)
                 close()
             }
 
             override fun onError(throwable: Throwable) {
-                close(throwable)
+                if (throwable is java.util.concurrent.CancellationException) broken = true
+                finished.complete(Unit)
+                // Not a CancellationException: to the caller this is a failure, not a stop.
+                close(IllegalStateException("Gemma could not answer", throwable))
             }
         }
-        conversation.sendMessageAsync(prompt.toContents(), callback)
-        // Stopping collection must stop the GPU too, or a cancelled answer keeps generating.
-        awaitClose { runCatching { conversation.cancelProcess() } }
+        try {
+            conversation.sendMessageAsync(prompt.toContents(), callback)
+        } catch (error: Exception) {
+            finished.complete(Unit)
+            throw error
+        }
+        // A stopped request lets the answer finish rather than cancelling it (see lastMessage).
+        awaitClose { }
     }
         // trySend must never drop text while speech catches up; the token limit bounds the buffer.
         .buffer(Channel.UNLIMITED)
@@ -176,5 +218,10 @@ private class LiteRtSession(
     override fun close() {
         runCatching { conversation.cancelProcess() }
         runCatching { conversation.close() }
+    }
+
+    private companion object {
+        /** Longer than a short answer takes on a phone CPU; rebuilding takes about as long. */
+        const val SETTLE_TIMEOUT_MS = 20_000L
     }
 }

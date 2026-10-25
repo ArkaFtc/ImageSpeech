@@ -6,14 +6,14 @@
     <string name="app_name">ImageSpeech</string>
 
     <!-- Screen one: the camera. -->
-    <string name="capture_hint">Tap Take photo, or hold the mic and ask a question.</string>
+    <string name="capture_hint">Tap Take photo. You can ask about it on the next screen.</string>
     <string name="camera_preview">Camera preview. Pinch to zoom.</string>
     <string name="zoom_in">Zoom in</string>
     <string name="zoom_out">Zoom out</string>
     <string name="zoom_in_symbol">+</string>
     <string name="zoom_out_symbol">−</string>
     <string name="take_photo">Take photo</string>
-    <string name="take_photo_description">Tap to take a photo. Hold for at least 400 milliseconds and speak to ask a question about it.</string>
+    <string name="take_photo_description">Take a photo. You can ask about it on the next screen.</string>
     <string name="capturing">Holding still…</string>
     <string name="reading_text">Reading the text…</string>
 
@@ -40,7 +40,6 @@
     <string name="ask">Ask</string>
 
     <string name="hold_to_ask">Hold to ask</string>
-    <string name="hold_to_ask_camera_description">Hold and speak a question. When you let go, the photo is taken and your question is answered.</string>
     <string name="hold_to_ask_description">Hold and speak to ask a question about the photo.</string>
     <string name="listening">Listening…</string>
     <string name="finishing_question">Finishing your question…</string>
@@ -50,7 +49,6 @@
 
     <string name="tts_unavailable">Text-to-speech is unavailable on this device.</string>
     <string name="camera_required">ImageSpeech needs the camera to work.</string>
-    <string name="mic_optional">Without the microphone, you can read the text but not ask questions.</string>
     <string name="processing_settings">Processing settings</string>
     <string name="local_processing">Local processing (OCR)</string>
     <string name="gemma_processing">On-device Gemma active</string>
