@@ -14,8 +14,9 @@ import android.util.Log
  * Hold-to-talk speech to text. Words are reported as they are recognised so the question can be
  * shown while it is spoken; releasing the button asks for the final text.
  *
- * The phone's on-device recognizer is used when it has one, so spoken questions stay on the phone
- * like everything else. Otherwise the system recognizer is asked to prefer offline recognition.
+ * The phone's default recognizer (Google Speech Services on the test phone) is used, asked to
+ * prefer offline recognition. The separate on-device recognizer is only a fallback: on the test
+ * phone it often reported no speech for a whole press while the default one heard it.
  * Must be used from the main thread.
  */
 class SpeechInput(
@@ -34,7 +35,8 @@ class SpeechInput(
         private set
     private val appContext = context.applicationContext
     private var recognizer: SpeechRecognizer? = null
-    private var onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
+    private var onDevice = !SpeechRecognizer.isRecognitionAvailable(appContext) &&
+        SpeechRecognizer.isOnDeviceRecognitionAvailable(appContext)
 
     /** Text recognised so far in this press, across any restarts. */
     private val committed = StringBuilder()
@@ -42,6 +44,8 @@ class SpeechInput(
     private var listening = false
     private var held = false
     private var restarts = 0
+    /** Loudest level the recognizer reported this press, logged to tell silence from a missed question. */
+    private var loudestDb = Float.NEGATIVE_INFINITY
     private var finish: ((String) -> Unit)? = null
 
     /** False on phones with no speech recognizer; the caller then records audio instead. */
@@ -56,6 +60,7 @@ class SpeechInput(
         held = true
         restarts = 0
         isReady = false
+        loudestDb = Float.NEGATIVE_INFINITY
         listen()
     }
 
@@ -142,6 +147,7 @@ class SpeechInput(
         held = false
         val done = finish ?: return
         finish = null
+        Log.i(TAG, "Press finished: loudest level ${loudestDb} dB, heard ${text().length} characters")
         main.removeCallbacks(stopAfterRelease)
         main.removeCallbacks(giveUp)
         done(text())
@@ -197,7 +203,9 @@ class SpeechInput(
             onReady()
         }
         override fun onBeginningOfSpeech() = Unit
-        override fun onRmsChanged(rmsdB: Float) = Unit
+        override fun onRmsChanged(rmsdB: Float) {
+            if (rmsdB > loudestDb) loudestDb = rmsdB
+        }
         override fun onBufferReceived(buffer: ByteArray?) = Unit
         override fun onEndOfSpeech() = Unit
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
