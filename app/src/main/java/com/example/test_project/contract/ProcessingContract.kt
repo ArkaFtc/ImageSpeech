@@ -27,6 +27,11 @@ enum class ProcessingAction {
     SUMMARIZE,
     /** A longer answer, as a follow-up to the last summary or question. */
     MORE_DETAIL,
+    /**
+     * Checks the photo against the user's dietary restrictions, given in the request's question.
+     * Says nothing when the photo is not something to eat or drink.
+     */
+    DIET_CHECK,
     ASK,
 }
 

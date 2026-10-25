@@ -72,3 +72,14 @@ Text could show without being read aloud. Causes found and fixed:
 - A passage that still cannot be voiced is skipped, and the rest of the answer is still spoken (Gemma and local reading).
 - `AudioPlayer` skips a passage that cannot play (no audio focus, a player error, or another app taking the speaker) instead of throwing. An exception there ended the review screen's playback loop, so nothing more was spoken until the screen was reopened, and some errors crashed the app.
 - Verified on the phone: `SpeechSynthesizerDeviceTest` force-stops the speech service mid-run and every later passage is still produced. In the app, answers kept being spoken after the speech service was force-stopped between two questions; the first sentence was about 3 seconds slower while it restarted.
+
+## Profile and dietary checks
+
+On first launch a profile page opens over the camera (Save or Skip for now). It can be edited any time from the person button in the top-left corner of the camera screen. The user types dietary restrictions or allergies in their own words, such as "allergic to walnuts" or "I don't eat meat".
+
+- Stored only on the phone, in app-private storage (`profile/Profile.kt`). It is excluded from cloud backup and device transfer (`res/xml/backup_rules.xml`, `res/xml/data_extraction_rules.xml`). Gemma runs on the phone, so it never leaves the device.
+- When a photo is taken and restrictions are saved, Gemma checks it right away (`ProcessingAction.DIET_CHECK`) and says whether it looks safe and what conflicts. More detail works after it.
+- Photos that have nothing to do with food or drink stay silent: Gemma replies "NOT FOOD", and the processor holds back the first words until it can tell, so that reply is never shown or spoken.
+- Taking a photo with a spoken question answers the question instead. Without Gemma there is no check.
+- Measured on the phone (`GemmaDietDeviceTest`): an EXIT sign stayed silent. Ingredient labels were judged correctly: banana bread flagged for walnuts and milk and safe for no meat; chicken soup flagged for meat and safe for walnuts and milk. A cookie box photo with no ingredient list got "cannot tell for sure". An earlier wording ("if this is not food, reply NOT FOOD") silenced that cookie box, so the opt-out now applies only when the photo has nothing to do with food at all.
+- The page tells users that checks can miss things and to read the label themselves for a serious allergy.

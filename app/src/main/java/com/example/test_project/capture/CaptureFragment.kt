@@ -101,6 +101,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         wireZoom(view)
 
         view.findViewById<View>(R.id.btnSettings).setOnClickListener { host.showProcessingSettings() }
+        view.findViewById<View>(R.id.btnProfile).setOnClickListener { host.showProfile() }
         val missing = CAMERA_PERMISSIONS.filterNot(::isGranted)
         if (missing.isEmpty()) {
             startCamera()

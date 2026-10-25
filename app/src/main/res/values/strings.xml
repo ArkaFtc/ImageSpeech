@@ -36,7 +36,6 @@
     <string name="tap_box_to_read">Tap a highlighted box to hear that text.</string>
     <string name="stop">Stop</string>
     <string name="stop_description">Stop speaking.</string>
-    <string name="stopped">Stopped. Ask a question, Summarize, or Read all text.</string>
     <string name="ask">Ask</string>
 
     <string name="hold_to_ask">Hold to ask</string>
@@ -77,6 +76,20 @@
     <string name="retry">Retry</string>
     <string name="read_locally">Read locally</string>
     <string name="processing_changed">Processing mode changed. Start the request again.</string>
+
+    <string name="profile">Profile</string>
+    <string name="profile_description">Edit your profile and dietary restrictions.</string>
+    <string name="profile_title">Your profile</string>
+    <string name="profile_explanation">Type any dietary restrictions or allergies. After you take a photo of food, ImageSpeech tells you if it looks like it contains any of them. Your profile is stored only on this phone and never leaves it.</string>
+    <string name="profile_dietary_label">Dietary restrictions and allergies</string>
+    <string name="profile_dietary_hint">For example: allergic to walnuts. I don\'t eat meat.</string>
+    <string name="profile_needs_gemma">Checking photos needs the on-device Gemma model. Download it in Processing settings.</string>
+    <string name="profile_caution">Checks can miss things, especially when the ingredients are not in the photo. For a serious allergy, always read the label yourself.</string>
+    <string name="profile_skip">Skip for now</string>
+    <string name="profile_saved">Profile saved.</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="stopped">Stopped. Ask a question, Summarize, or Read all text.</string>
 
     <string name="repeat">Repeat</string>
     <string name="repeat_description">Say the text in the box at the top again.</string>
