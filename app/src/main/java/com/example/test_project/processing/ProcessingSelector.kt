@@ -7,7 +7,8 @@ enum class ProcessingLane { LOCAL, GEMMA, GEMMA_REQUIRED }
 object ProcessingSelector {
     fun select(gemmaReady: Boolean, action: ProcessingAction): ProcessingLane = when {
         gemmaReady -> ProcessingLane.GEMMA
-        action == ProcessingAction.ASK || action == ProcessingAction.SUMMARIZE -> ProcessingLane.GEMMA_REQUIRED
+        action == ProcessingAction.ASK || action == ProcessingAction.SUMMARIZE ||
+            action == ProcessingAction.SUMMARIZE_DETAILED -> ProcessingLane.GEMMA_REQUIRED
         else -> ProcessingLane.LOCAL
     }
 }

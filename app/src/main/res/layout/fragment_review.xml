@@ -125,6 +125,16 @@
             android:orientation="vertical"
             android:padding="12dp">
 
+            <Button
+                android:id="@+id/btnMoreDetail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:minHeight="52dp"
+                android:text="@string/more_detail"
+                android:contentDescription="@string/more_detail_description"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:id="@+id/readActions"
                 android:layout_width="match_parent"

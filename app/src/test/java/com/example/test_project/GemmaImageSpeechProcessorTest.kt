@@ -156,7 +156,21 @@ class GemmaImageSpeechProcessorTest {
         val model = FakeModel(FakeModel.Chunks("A box of maple cookies."))
         processor(model).process(ProcessingRequest(bitmap(), action = ProcessingAction.SUMMARIZE)).toList()
 
-        assertTrue(model.prompts[0].text.startsWith("Briefly say what this is"))
+        assertTrue(model.prompts[0].text.contains("one to three sentences"))
+    }
+
+    @Test
+    fun moreDetailFollowsTheShortSummaryInTheSameConversation() = runTest {
+        val model = FakeModel(FakeModel.Chunks("A box of maple cookies."), FakeModel.Chunks("They are leaf shaped. Serve with tea."))
+        val gemma = processor(model)
+        val photo = bitmap()
+
+        gemma.process(ProcessingRequest(photo, action = ProcessingAction.SUMMARIZE)).toList()
+        val detailed = gemma.process(ProcessingRequest(photo, action = ProcessingAction.SUMMARIZE_DETAILED)).toList()
+
+        assertEquals("no second photo processing", 1, model.opened.size)
+        assertTrue(model.prompts[1].text.startsWith("Give a more detailed summary"))
+        assertEquals("They are leaf shaped. Serve with tea.", (detailed.last() as ReadingEvent.Complete).responseText)
     }
 
     @Test

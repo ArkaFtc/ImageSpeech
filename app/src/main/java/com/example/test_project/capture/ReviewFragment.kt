@@ -5,7 +5,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.SystemClock
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -63,7 +62,6 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private lateinit var statusScroll: View
     private var typing = false
     private var renderedBlocks: List<TextBlock> = emptyList()
-    private var renderedResponse = ""
 
     private val microphonePermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -102,6 +100,10 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         view.findViewById<Button>(R.id.btnSummarize).setOnClickListener {
             if (!host.hasGemma) status.setText(R.string.gemma_required_for_questions)
             else process(null, action = ProcessingAction.SUMMARIZE)
+        }
+        view.findViewById<Button>(R.id.btnMoreDetail).setOnClickListener {
+            if (!host.hasGemma) status.setText(R.string.gemma_required_for_questions)
+            else process(null, action = ProcessingAction.SUMMARIZE_DETAILED)
         }
         view.findViewById<View>(R.id.btnReviewSettings).setOnClickListener { host.showProcessingSettings() }
         view.findViewById<Button>(R.id.btnRepeat).setOnClickListener { repeatShownText() }
@@ -192,6 +194,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                         // Repeat speaks what is already shown; while an answer is still being
                         // written it would talk over it.
                         view?.findViewById<Button>(R.id.btnRepeat)?.isEnabled = !state.running
+                        updateMoreDetail()
                         val failure = state.failure
                         status.text = when {
                             failure != null && state.response.isNotBlank() -> state.response + "\n\nIncomplete response. " + failure.message
@@ -210,9 +213,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                             if (failure?.canRetry == true) View.VISIBLE else View.GONE
                         view?.findViewById<Button>(R.id.btnReadLocally)?.visibility =
                             if (failure?.canReadLocally == true) View.VISIBLE else View.GONE
-                        if (renderedBlocks != state.blocks || renderedResponse != state.response && state.complete) {
+                        if (renderedBlocks != state.blocks) {
                             renderedBlocks = state.blocks
-                            renderedResponse = if (state.complete) state.response else ""
                             renderOverlays()
                         }
                     }
@@ -224,26 +226,6 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                 }
             }
         }
-    }
-
-    private fun addResponsePassage(text: String) {
-        if (text.isBlank()) return
-        val button = Button(requireContext()).apply {
-            this.text = text
-            isAllCaps = false
-            contentDescription = getString(R.string.replay_response)
-            setOnClickListener { speak(text) }
-        }
-        TextScale.apply(button, host.textScale)
-        val margin = (32 * resources.displayMetrics.density).roundToInt()
-        blockList.addView(
-            button,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER,
-            ).apply { marginStart = margin; marginEnd = margin },
-        )
     }
 
     private fun addBlock(block: TextBlock, position: Int) {
@@ -288,10 +270,9 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private fun renderOverlays() {
         if (!this::blockList.isInitialized || blockList.width == 0 || !this::shotImage.isInitialized) return
         blockList.removeAllViews()
+        // Gemma's answers have no position in the photo; they stay in the text box, where
+        // Repeat says them again.
         renderedBlocks.forEachIndexed { index, block -> addBlock(block, index + 1) }
-        if (renderedBlocks.isEmpty() && renderedResponse.isNotBlank()) {
-            addResponsePassage(renderedResponse)
-        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -428,6 +409,14 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         view.findViewById<View>(R.id.btnAsk).visibility = hiddenWhileTyping
         if (open) errorActions.visibility = View.GONE
         else errorActions.visibility = if (appState.review.value.failure == null) View.GONE else View.VISIBLE
+        updateMoreDetail()
+    }
+
+    /** More detail is offered once a short summary has finished. */
+    private fun updateMoreDetail() {
+        val state = appState.review.value
+        val offered = !typing && state.complete && state.action == ProcessingAction.SUMMARIZE
+        view?.findViewById<View>(R.id.btnMoreDetail)?.visibility = if (offered) View.VISIBLE else View.GONE
     }
 
     private fun hideKeyboard(field: EditText) {

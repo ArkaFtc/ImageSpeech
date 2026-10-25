@@ -28,6 +28,8 @@
     <string name="read_all_description">Read all the text in the photo aloud, in order.</string>
     <string name="summarize">Summarize</string>
     <string name="summarize_description">Hear a short summary of what the photo shows.</string>
+    <string name="more_detail">More detail</string>
+    <string name="more_detail_description">Hear a longer, more detailed summary.</string>
     <string name="holding_to_talk">Listening. Release to send.</string>
     <string name="new_photo">New photo</string>
     <string name="new_photo_description">Go back to the camera and take another photo.</string>
@@ -73,7 +75,6 @@
     <string name="type_question_first">Type a question first.</string>
     <string name="retry">Retry</string>
     <string name="read_locally">Read locally</string>
-    <string name="replay_response">Replay this response without generating it again.</string>
     <string name="processing_changed">Processing mode changed. Start the request again.</string>
 
     <string name="repeat">Repeat</string>

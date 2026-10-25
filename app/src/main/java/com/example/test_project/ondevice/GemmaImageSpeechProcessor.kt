@@ -410,6 +410,7 @@ class GemmaImageSpeechProcessor(
             ProcessingAction.PREPARE -> "Looking at the photo on this phone…"
             ProcessingAction.ASK -> "Thinking on this phone…"
             ProcessingAction.SUMMARIZE -> "Summarizing on this phone…"
+            ProcessingAction.SUMMARIZE_DETAILED -> "Adding detail on this phone…"
             ProcessingAction.READ, ProcessingAction.READ_ALL -> "Reading on this phone…"
         }
 
@@ -430,7 +431,13 @@ class GemmaImageSpeechProcessor(
          */
         fun instruction(action: ProcessingAction, question: String): String = when (action) {
             ProcessingAction.PREPARE -> ""
-            ProcessingAction.SUMMARIZE -> "Briefly say what this is and the most important information in it."
+            ProcessingAction.SUMMARIZE ->
+                "Summarize this in one to three sentences: one for a little text, up to three for a lot. " +
+                    "Say what it is and the most important information."
+            ProcessingAction.SUMMARIZE_DETAILED ->
+                "Give a more detailed summary. Cover the main points and the important details, " +
+                    "such as numbers, dates, warnings and conditions, in a few short paragraphs of plain " +
+                    "sentences. It will be read aloud, so do not use bullet points, headings or symbols like asterisks."
             ProcessingAction.READ -> "Read the meaningful visible text faithfully in logical order."
             ProcessingAction.READ_ALL -> "Read all visible text, including peripheral text, page numbers, running headers, labels, and other visible wording."
             ProcessingAction.ASK ->

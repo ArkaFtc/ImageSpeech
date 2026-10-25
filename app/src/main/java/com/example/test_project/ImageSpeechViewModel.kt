@@ -3,6 +3,7 @@ package com.example.test_project
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.test_project.contract.ProcessingAction
 import com.example.test_project.contract.ProcessingRequest
 import com.example.test_project.contract.ReadingEvent
 import com.example.test_project.contract.SpokenAudio
@@ -19,6 +20,7 @@ import kotlinx.coroutines.launch
 
 data class ReviewRunState(
     val requestIdentity: List<Int> = emptyList(),
+    val action: ProcessingAction? = null,
     val status: String = "",
     val blocks: List<TextBlock> = emptyList(),
     val response: String = "",
@@ -54,7 +56,7 @@ class ImageSpeechViewModel(application: Application) : AndroidViewModel(applicat
         lastRequest = request
         active?.cancel()
         val mine = ++generation
-        _review.value = ReviewRunState(requestIdentity = request.identity(), running = true)
+        _review.value = ReviewRunState(requestIdentity = request.identity(), action = request.action, running = true)
         active = viewModelScope.launch {
             try {
                 val source = if (forceLocal) processor.processLocally(request) else processor.process(request)
