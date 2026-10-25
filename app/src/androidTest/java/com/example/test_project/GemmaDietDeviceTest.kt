@@ -85,16 +85,21 @@ class GemmaDietDeviceTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         // A real photo of a cookie box: "CONTAINS SOY, WHEAT. MAY CONTAIN TRACES OF MILK, EGG,
         // COCONUT." Soy is also in the ingredients (soy lecithin).
-        val photos = realLabels(context)
+        // -e quick true: the real photo only, three restrictions, for a fast check.
+        val quick = InstrumentationRegistry.getArguments().getString("quick") == "true"
+        val photos = realLabels(context).let { if (quick) it.take(1) else it }
+        val cases = if (quick) REAL_LABEL_CASES.filter { it.first in QUICK_CASES } else REAL_LABEL_CASES
         assumeTrue("real label photos not on the phone", photos.isNotEmpty())
         withGemma(context) { gemma ->
             val verdicts = mutableListOf<String>()
             for ((name, photo) in photos) {
-                for ((restrictions, expect) in REAL_LABEL_CASES) {
+                for ((restrictions, expect) in cases) {
+                    val started = System.currentTimeMillis()
                     gemma.resetConversation()
                     val reply = check(gemma, photo, restrictions)
                     val verdict = expect(reply.lowercase())
                     verdicts += "$name [$restrictions] $verdict"
+                    Log.i(TAG, "$name [$restrictions] took ${System.currentTimeMillis() - started} ms")
                     Log.i(TAG, "$name [$restrictions] $verdict -> ${reply.replace('\n', ' ')}")
                 }
             }
@@ -195,6 +200,8 @@ class GemmaDietDeviceTest {
                 else -> "ok"
             }
         }
+
+        val QUICK_CASES = setOf("Allergic to soy.", "Allergic to milk.", "Allergic to walnuts.")
 
         val REAL_LABEL_CASES = listOf(
             "Allergic to soy." to definite("soy"),

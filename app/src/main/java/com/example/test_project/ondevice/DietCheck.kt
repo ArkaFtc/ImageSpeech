@@ -3,11 +3,13 @@ package com.example.test_project.ondevice
 /**
  * Checks a photo against the user's dietary restrictions, in two short steps Gemma is good at.
  *
- * 1. Gemma copies what it sees: the food, the ingredients and the allergen lines ([instruction]).
- * 2. Gemma picks which of those items the restrictions rule out ([matchQuestion]).
+ * 1. Gemma copies what it sees: the food and the allergen lines ([instruction]).
+ * 2. Gemma answers yes or no for each of those items ([matchQuestion]).
  *
- * The verdict is built here: a match is "contains" when it is in the ingredients or the Contains
- * line, and "may contain" only when it is only in the May contain line. Measured on a real cookie
+ * The verdict is built here: a match is "contains" when it is the food or in the Contains line,
+ * and "may contain" only when it is only in the May contain line. The full ingredient list is
+ * not copied: on the phone CPU that took about 25 seconds and made the matching longer, so
+ * restrictions only found in the ingredients (such as meat) can be missed. Measured on a real cookie
  * box, asking for a sentence made Gemma indecisive ("cannot tell" with the list in plain view) or
  * contradictory ("contains soy, therefore it does not go against your restrictions"), and one
  * combined form made it list every allergen on the label whatever the restrictions said.
@@ -17,10 +19,9 @@ object DietCheck {
     const val NOT_FOOD = "NOT FOOD"
 
     private const val FOOD = "FOOD"
-    private const val INGREDIENTS = "INGREDIENTS"
     private const val CONTAINS_LINE = "CONTAINS LINE"
     private const val MAY_CONTAIN_LINE = "MAY CONTAIN LINE"
-    private val KEYS = listOf(MAY_CONTAIN_LINE, CONTAINS_LINE, INGREDIENTS, FOOD)
+    private val KEYS = listOf(MAY_CONTAIN_LINE, CONTAINS_LINE, FOOD)
 
     /** At most this many items go into the matching question. */
     private const val MAX_ITEMS = 40
@@ -28,14 +29,13 @@ object DietCheck {
     /** What Gemma copied from the photo. [fields] is empty when its reply did not follow the form. */
     class Label(val raw: String, private val fields: Map<String, String>, val isForm: Boolean) {
         val food: String? get() = fields[FOOD]
-        val ingredients: String? get() = fields[INGREDIENTS]
         val contains: String? get() = fields[CONTAINS_LINE]
         val mayContain: String? get() = fields[MAY_CONTAIN_LINE]
-        val hasLabel: Boolean get() = ingredients != null || contains != null || mayContain != null
+        val hasAllergenLines: Boolean get() = contains != null || mayContain != null
 
-        /** Every item worth checking: the food, its ingredients and the allergens named. */
+        /** Every item worth checking: the food and the allergens named. */
         val items: List<String>
-            get() = (listOfNotNull(food) + split(ingredients) + split(contains?.let(::withoutLead)) +
+            get() = (listOfNotNull(food) + split(contains?.let(::withoutLead)) +
                 split(mayContain?.let(::withoutLead))).map { it.lowercase() }.distinct().take(MAX_ITEMS)
     }
 
@@ -44,7 +44,6 @@ object DietCheck {
             "Read the photo carefully and fill in this form. Write NONE for anything that is not there. " +
             "Use one line per field and nothing else.\n" +
             "$FOOD: what the food or drink is, in a few words\n" +
-            "$INGREDIENTS: the ingredient list, copied as printed\n" +
             "$CONTAINS_LINE: the allergen line starting with Contains, copied as printed\n" +
             "$MAY_CONTAIN_LINE: the line starting with May contain, or about traces, copied as printed\n" +
             "Only if the photo has nothing to do with food or drink at all, reply only: $NOT_FOOD"
@@ -71,7 +70,7 @@ object DietCheck {
     fun verdict(label: Label, matches: String?): String {
         if (!label.isForm) return label.raw
         val matched = matchedItems(matches)
-        val definite = listOfNotNull(label.food, label.ingredients, label.contains?.let(::withoutLead)).joinToString(", ").lowercase()
+        val definite = listOfNotNull(label.food, label.contains?.let(::withoutLead)).joinToString(", ").lowercase()
         val possible = label.mayContain?.let(::withoutLead).orEmpty().lowercase()
         // Only in the May contain line is "may contain"; anything else, even a match Gemma could
         // not place, is "contains": a missed allergen is worse than a cautious one.
@@ -82,8 +81,8 @@ object DietCheck {
             found.isNotEmpty() && maybe.isNotEmpty() -> "Not safe for you: it contains ${spoken(found)}. It may also contain ${spoken(maybe)}."
             found.isNotEmpty() -> "Not safe for you: it contains ${spoken(found)}."
             maybe.isNotEmpty() -> "Be careful: the label says it may contain ${spoken(maybe)}."
-            label.hasLabel -> "It looks safe for you. Nothing on the label goes against your restrictions."
-            else -> "I can't see an ingredient list, so I can't be sure. Nothing I can see goes against your restrictions."
+            label.hasAllergenLines -> "It looks safe for you. Nothing in the allergen information goes against your restrictions."
+            else -> "I can't see allergen information, so I can't be sure. Nothing I can see goes against your restrictions."
         }
     }
 

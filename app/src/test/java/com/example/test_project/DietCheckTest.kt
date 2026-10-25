@@ -18,12 +18,13 @@ class DietCheckTest {
     )!!
 
     @Test
-    fun theMatchingQuestionListsEveryItemOnTheLabel() {
+    fun theMatchingQuestionListsTheFoodAndTheAllergensNamed() {
         val question = DietCheck.matchQuestion("Allergic to soy.", cookieBox)!!
         assertTrue(question.startsWith("My dietary restrictions: Allergic to soy."))
-        listOf("maple leaf cookies", "wheat flour", "soy lecithin", "soy", "wheat", "milk", "egg", "coconut").forEach {
+        listOf("maple leaf cookies", "soy", "wheat", "milk", "egg", "coconut").forEach {
             assertTrue("$it is asked about", it in question)
         }
+        assertTrue("the ingredient list is not, to keep the check short", "palm oil" !in question)
     }
 
     @Test
@@ -31,14 +32,14 @@ class DietCheckTest {
         val judged = "maple leaf cookies: no\nwheat flour: no\nsoy lecithin: yes\nsoy: Yes.\nwheat: no\nmilk: no\negg: no\ncoconut: no"
         assertEquals("Not safe for you: it contains soy lecithin and soy.", DietCheck.verdict(cookieBox, judged))
         assertEquals(
-            "It looks safe for you. Nothing on the label goes against your restrictions.",
+            "It looks safe for you. Nothing in the allergen information goes against your restrictions.",
             DietCheck.verdict(cookieBox, "soy: no\nwheat: no\nmilk: no"),
         )
     }
 
     @Test
     fun aMatchInTheIngredientsOrContainsLineIsContainsNeverMayContain() {
-        assertEquals("Not safe for you: it contains soy and soy lecithin.", DietCheck.verdict(cookieBox, "soy, soy lecithin"))
+        assertEquals("Not safe for you: it contains soy.", DietCheck.verdict(cookieBox, "soy"))
     }
 
     @Test
@@ -56,7 +57,7 @@ class DietCheckTest {
 
     @Test
     fun noMatchOnAReadableLabelIsSafe() {
-        assertEquals("It looks safe for you. Nothing on the label goes against your restrictions.", DietCheck.verdict(cookieBox, "NONE"))
+        assertEquals("It looks safe for you. Nothing in the allergen information goes against your restrictions.", DietCheck.verdict(cookieBox, "NONE"))
     }
 
     @Test
@@ -73,7 +74,7 @@ class DietCheckTest {
     fun noLabelAtAllSaysSo() {
         val apple = DietCheck.readLabel("FOOD: an apple\nINGREDIENTS: NONE\nCONTAINS LINE: NONE\nMAY CONTAIN LINE: NONE")!!
         assertEquals(
-            "I can't see an ingredient list, so I can't be sure. Nothing I can see goes against your restrictions.",
+            "I can't see allergen information, so I can't be sure. Nothing I can see goes against your restrictions.",
             DietCheck.verdict(apple, "NONE"),
         )
         assertEquals("Not safe for you: it contains an apple.", DietCheck.verdict(apple, "an apple"))
@@ -84,7 +85,7 @@ class DietCheckTest {
         val blank = DietCheck.readLabel("FOOD: NONE\nINGREDIENTS: NONE\nCONTAINS LINE: NONE\nMAY CONTAIN LINE: NONE")!!
         assertNull(DietCheck.matchQuestion("Allergic to soy.", blank))
         assertEquals(
-            "I can't see an ingredient list, so I can't be sure. Nothing I can see goes against your restrictions.",
+            "I can't see allergen information, so I can't be sure. Nothing I can see goes against your restrictions.",
             DietCheck.verdict(blank, null),
         )
     }
