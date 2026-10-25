@@ -2,11 +2,15 @@ package com.example.test_project
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -153,6 +157,24 @@ class MainActivity : AppCompatActivity() {
     private suspend fun prepareGemmaInBackground() {
         runCatching { state.processor.prepareGemma() }
             .onFailure { android.util.Log.w(TAG, "Gemma not ready", it) }
+    }
+
+    /**
+     * A tap outside the text field being typed in closes the keyboard and keeps the typed text.
+     * The tap itself still goes through, so tapping Ask sends the question as before.
+     */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            (currentFocus as? EditText)?.let { field ->
+                val bounds = Rect()
+                field.getGlobalVisibleRect(bounds)
+                if (!bounds.contains(event.rawX.toInt(), event.rawY.toInt())) {
+                    getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(field.windowToken, 0)
+                    field.clearFocus()
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
     }
 
     // ------------------------------------------------------------------ text size
