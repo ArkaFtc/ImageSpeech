@@ -187,6 +187,27 @@ class GemmaImageSpeechProcessorTest {
     }
 
     @Test
+    fun aSentenceTheVoiceCannotSayDoesNotSilenceTheRest() = runTest {
+        val model = FakeModel(FakeModel.Chunks("First one. ", "Second one. ", "Third one."))
+        val said = mutableListOf<String>()
+        val gemma = GemmaImageSpeechProcessor(
+            model = model,
+            speak = { text ->
+                if (text.startsWith("Second")) throw IllegalStateException("Speech engine did not finish")
+                said += text
+                SpokenAudio(text, ByteArray(0))
+            },
+            encode = { bitmap -> byteArrayOf(System.identityHashCode(bitmap).toByte()) },
+            clock = { 0L },
+        )
+
+        val events = gemma.process(ask(bitmap(), "What does it say?")).toList()
+
+        assertEquals(listOf("First one.", "Third one."), said.map { it.trim() })
+        assertEquals("First one. Second one. Third one.", (events.last() as ReadingEvent.Complete).responseText)
+    }
+
+    @Test
     fun markdownIsNeitherShownNorSpoken() = runTest {
         val model = FakeModel(FakeModel.Chunks("**Bold", "** start.\n", "* One\n- Two\n## Head", "ing\nUse `code`."))
         val events = processor(model).process(ask(bitmap(), "What does it say?")).toList()

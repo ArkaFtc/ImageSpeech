@@ -45,6 +45,19 @@ class DocumentReadingTest {
     }
 
     @Test
+    fun `a passage the voice cannot say is skipped and the rest are still spoken`() = runTest {
+        val skipped = mutableListOf<Exception>()
+        val output =
+            streamingSpeech(flowOf("One.", "Two.", "Three."), onSkipped = { skipped += it }) { text ->
+                    if (text == "Two.") throw IllegalStateException("Speech engine did not finish")
+                    text
+                }
+                .toList()
+        assertEquals(listOf("One.", "Three."), output)
+        assertEquals(1, skipped.size)
+    }
+
+    @Test
     fun `stopping speech cancels upstream OCR with bounded lookahead`() = runTest {
         var cancelled = false
         var produced = 0

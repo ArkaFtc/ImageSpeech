@@ -171,7 +171,15 @@ class GemmaImageSpeechProcessor(
             var firstAudioMs: Long? = null
             val speech = launch {
                 for (sentence in sentences) {
-                    val audio = speak(sentence)
+                    // One sentence the voice cannot say is skipped; the rest are still spoken.
+                    val audio = try {
+                        speak(sentence)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Could not speak a sentence; skipping it", error)
+                        continue
+                    }
                     if (firstAudioMs == null) firstAudioMs = clock() - started
                     send(ReadingEvent.Audio(audio.copy(readingStartedAtMs = started)))
                 }

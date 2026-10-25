@@ -224,6 +224,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                     }
                 }
                 launch {
+                    // The player skips passages it cannot play, so one bad passage never ends
+                    // this loop and silences the rest.
                     appState.audio.collect { queued ->
                         if (appState.isCurrent(queued)) player.play(queued.audio)
                     }

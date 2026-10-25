@@ -11,6 +11,7 @@ import com.example.test_project.contract.SpokenAudio
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -24,7 +25,23 @@ class AudioPlayer(private val context: Context) {
     @Volatile private var finishActive: (() -> Unit)? = null
     private var lastReadingStartedAtMs: Long? = null
 
+    /**
+     * Plays one passage. A passage that cannot play (no audio focus, a player error, focus taken
+     * by another app) is skipped with a log line rather than thrown: an exception here used to
+     * end the review screen's playback loop, so nothing more was spoken.
+     */
     suspend fun play(audio: SpokenAudio, onStarted: () -> Unit = {}) {
+        if (audio.wav.size <= WAV_HEADER_BYTES) return
+        try {
+            playOrThrow(audio, onStarted)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "Skipped a passage that could not play", error)
+        }
+    }
+
+    private suspend fun playOrThrow(audio: SpokenAudio, onStarted: () -> Unit) {
         val file = File.createTempFile("playback", ".wav", context.cacheDir)
         val player = MediaPlayer()
         active = player
@@ -45,8 +62,10 @@ class AudioPlayer(private val context: Context) {
                     AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                         .setAudioAttributes(attributes)
                         .setOnAudioFocusChangeListener { change ->
+                            // Another app took the speaker for good: end this passage. Cancelling
+                            // here used to cancel the caller's playback loop as well.
                             if (change == AudioManager.AUDIOFOCUS_LOSS && continuation.isActive) {
-                                continuation.cancel()
+                                continuation.resume(Unit)
                             }
                         }
                         .build()
@@ -105,5 +124,10 @@ class AudioPlayer(private val context: Context) {
         finishActive?.invoke()
         finishActive = null
         active = null
+    }
+
+    private companion object {
+        const val TAG = "AudioPlayer"
+        const val WAV_HEADER_BYTES = 44
     }
 }

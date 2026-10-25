@@ -93,7 +93,7 @@ class LocalImageSpeechProcessor(
                         .flowOn(Dispatchers.Default)
                 // Preparing finds and shows the text silently; reading happens when asked for.
                 if (request.action == ProcessingAction.PREPARE) passages.collect {}
-                else streamingSpeech(passages) { voice.synthesize(it) }
+                else streamingSpeech(passages, ::logSkipped) { voice.synthesize(it) }
                     .collect { audio ->
                         if (firstAudio) {
                             Log.i(
@@ -114,7 +114,7 @@ class LocalImageSpeechProcessor(
             chunker.offer(text).forEach { emit(it) }
             chunker.flush()?.let { emit(it) }
         }
-        return streamingSpeech(passages) { voice.synthesize(it) }
+        return streamingSpeech(passages, ::logSkipped) { voice.synthesize(it) }
     }
 
     fun close() {
@@ -129,5 +129,9 @@ class LocalImageSpeechProcessor(
                 scope.cancel()
             }
         }
+    }
+
+    private fun logSkipped(error: Exception) {
+        Log.w("ReadingTiming", "Could not speak a passage; skipping it", error)
     }
 }

@@ -63,3 +63,12 @@ Unit tests cover ordering, page splitting/gutter detection, overlay coordinate p
 Deterministic Gemma tests use a scripted fake model (no native code) and cover streaming text and ordered speech, follow-ups that reuse encoded images, additional views, failures with partial text, cancellation and stale-turn suppression, conversation rebuilding and trimming, spoken questions passed as audio, replay without the model, download completeness checks, and lane routing. Runtime logs report first visible text, first synthesized passage, total generation time, and input bytes. Real-device testing with the downloaded model is still needed for reading accuracy, speed, memory use, and the GPU/CPU fallback.
 
 Benchmark details and limitations: [reading](benchmarks/reading/RESULTS.md), [dewarp comparisons](benchmarks/dewarp/RESULTS.md), [isolated PPOCR](benchmarks/ppocr/RESULTS.md). Device validation does not yet establish microphone sensitivity, on-device Gemma answer quality, or accuracy across diverse documents.
+
+## Speech reliability
+
+Text could show without being read aloud. Causes found and fixed:
+
+- The phone's speech service can be paused or killed in the background. The next passage was then refused, which ended the answer's speech. `SpeechSynthesizer` now restarts the engine and tries the passage once more. A passage that never finishes times out after 15 seconds as an ordinary failure; it used to time out as if the user had stopped, silencing the rest of the answer.
+- A passage that still cannot be voiced is skipped, and the rest of the answer is still spoken (Gemma and local reading).
+- `AudioPlayer` skips a passage that cannot play (no audio focus, a player error, or another app taking the speaker) instead of throwing. An exception there ended the review screen's playback loop, so nothing more was spoken until the screen was reopened, and some errors crashed the app.
+- Verified on the phone: `SpeechSynthesizerDeviceTest` force-stops the speech service mid-run and every later passage is still produced. In the app, answers kept being spoken after the speech service was force-stopped between two questions; the first sentence was about 3 seconds slower while it restarted.
