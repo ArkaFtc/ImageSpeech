@@ -235,6 +235,22 @@ class GemmaImageSpeechProcessorTest {
     }
 
     @Test
+    fun dietCheckFormIsNeverShownOnlyItsVerdict() = runTest {
+        val model = FakeModel(
+            FakeModel.Chunks("FOOD: cookies\nINGREDIENTS: wheat flour, soy lecithin\nCONTAINS LINE: CONTAINS SOY", ", WHEAT.\nMAY CONTAIN LINE: NONE"),
+            FakeModel.Chunks("SOY"),
+        )
+        val events = processor(model).process(dietCheck(bitmap(), "Allergic to soy.")).toList()
+
+        assertEquals("the label is copied, then matched against the restrictions", 2, model.prompts.size)
+        assertTrue(model.prompts[1].text.startsWith("My dietary restrictions: Allergic to soy.\nJudge each item"))
+        val verdict = "Not safe for you: it contains soy."
+        assertEquals(verdict, events.filterIsInstance<ReadingEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(verdict, (events.last() as ReadingEvent.Complete).responseText)
+        assertEquals(verdict, spoken.joinToString(" "))
+    }
+
+    @Test
     fun moreDetailFollowsADietCheck() = runTest {
         val model = FakeModel(FakeModel.Chunks("It contains walnuts."), FakeModel.Chunks("The ingredients list walnut pieces and walnut oil."))
         val gemma = processor(model)

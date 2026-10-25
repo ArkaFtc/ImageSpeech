@@ -25,6 +25,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.test_project.MainActivity
+import com.example.test_project.MicSetting
 import com.example.test_project.ImageSpeechViewModel
 import com.example.test_project.R
 import com.example.test_project.TextScale
@@ -300,6 +301,10 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                         status.setText(R.string.gemma_required_for_questions)
                         return@setOnTouchListener true
                     }
+                    if (MicSetting.isMuted(requireContext())) {
+                        status.setText(R.string.mic_muted_hold)
+                        return@setOnTouchListener true
+                    }
                     if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                         microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
                         return@setOnTouchListener true
@@ -321,7 +326,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
                 MotionEvent.ACTION_UP -> {
                     view.isPressed = false
                     holding.hide()
-                    if (!host.hasGemma || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@setOnTouchListener true
+                    if (!host.hasGemma || MicSetting.isMuted(requireContext()) || ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return@setOnTouchListener true
                     val heldMs = SystemClock.elapsedRealtime() - pressedAt
                     if (transcribing) {
                         status.setText(R.string.finishing_question)

@@ -77,6 +77,15 @@
     <string name="read_locally">Read locally</string>
     <string name="processing_changed">Processing mode changed. Start the request again.</string>
 
+    <string name="mic_on_description">Microphone on. Tap to mute.</string>
+    <string name="mic_off_description">Microphone muted. Tap to unmute.</string>
+    <string name="mic_now_on">Microphone on.</string>
+    <string name="mic_now_muted">Microphone muted. You can still type questions.</string>
+    <string name="mic_muted_hold">The microphone is muted. Unmute it with the microphone button on the camera screen, or type your question.</string>
+    <string name="mic_blocked_title">Microphone access is off</string>
+    <string name="mic_blocked_message">To ask questions out loud, allow ImageSpeech to use the microphone in the app\'s settings.</string>
+    <string name="open_settings">Open settings</string>
+
     <string name="profile">Profile</string>
     <string name="profile_description">Edit your profile and dietary restrictions.</string>
     <string name="profile_title">Your profile</string>

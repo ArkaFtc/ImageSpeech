@@ -80,6 +80,48 @@ class GemmaDietDeviceTest {
         }
     }
 
+    @Test
+    fun realLabelIsDecisive() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        // A real photo of a cookie box: "CONTAINS SOY, WHEAT. MAY CONTAIN TRACES OF MILK, EGG,
+        // COCONUT." Soy is also in the ingredients (soy lecithin).
+        val photos = realLabels(context)
+        assumeTrue("real label photos not on the phone", photos.isNotEmpty())
+        withGemma(context) { gemma ->
+            val verdicts = mutableListOf<String>()
+            for ((name, photo) in photos) {
+                for ((restrictions, expect) in REAL_LABEL_CASES) {
+                    gemma.resetConversation()
+                    val reply = check(gemma, photo, restrictions)
+                    val verdict = expect(reply.lowercase())
+                    verdicts += "$name [$restrictions] $verdict"
+                    Log.i(TAG, "$name [$restrictions] $verdict -> ${reply.replace('\n', ' ')}")
+                }
+            }
+            assertTrue("real label verdicts: $verdicts", verdicts.none { "WRONG" in it })
+        }
+    }
+
+    private suspend fun withGemma(context: android.content.Context, work: suspend (GemmaImageSpeechProcessor) -> Unit) {
+        val store = GemmaModelStore(context)
+        assumeTrue("Gemma model not downloaded", store.isPresent)
+        val profile = GemmaProfile.forDevice(context)
+        val model = LiteRtGemmaModel(context, store, profile)
+        val gemma = GemmaImageSpeechProcessor(
+            model = model,
+            speak = { SpokenAudio(it, ByteArray(0)) },
+            contextTokens = profile.contextTokens,
+            outputTokens = profile.outputTokens,
+        )
+        try {
+            work(gemma)
+        } finally {
+            gemma.close()
+            gemma.awaitIdle()
+            model.close()
+        }
+    }
+
     private suspend fun check(gemma: GemmaImageSpeechProcessor, photo: Bitmap, restrictions: String): String {
         val done = gemma.process(ProcessingRequest(photo, action = ProcessingAction.DIET_CHECK, question = restrictions)).toList().last()
         return (done as? ReadingEvent.Complete)?.responseText ?: error("check failed: $done")
@@ -90,6 +132,17 @@ class GemmaDietDeviceTest {
         if (!screen.isFile) return null
         val shot = BitmapFactory.decodeFile(screen.path) ?: return null
         return Bitmap.createBitmap(shot, 0, 735, shot.width, 870)
+    }
+
+    /**
+     * The same cookie box twice: a full camera photo, and a screenshot of the camera preview.
+     * Copied to the app's cache by hand; the test is skipped without them.
+     */
+    private fun realLabels(context: android.content.Context): List<Pair<String, Bitmap>> = buildList {
+        val photo = java.io.File(context.cacheDir, "soy-label-photo.jpg")
+        if (photo.isFile) BitmapFactory.decodeFile(photo.path)?.let { add("photo" to it) }
+        val screen = java.io.File(context.cacheDir, "soy-label-screen.png")
+        if (screen.isFile) BitmapFactory.decodeFile(screen.path)?.let { add("preview" to Bitmap.createBitmap(it, 53, 357, 973, 1183)) }
     }
 
     private fun label(name: String, vararg lines: String): Pair<String, Bitmap> =
@@ -111,5 +164,47 @@ class GemmaDietDeviceTest {
 
     private companion object {
         const val TAG = "GemmaDietTest"
+
+        private val UNSURE = listOf("cannot tell", "can't tell", "not visible", "unable to", "cannot confirm", "not sure", "can't be sure")
+
+        private fun definite(word: String): (String) -> String = { reply ->
+            when {
+                word !in reply -> "WRONG: does not mention $word"
+                "may contain $word" in reply || "might contain $word" in reply -> "WRONG: says may contain $word"
+                UNSURE.any { it in reply } -> "WRONG: unsure"
+                "looks safe" in reply || "does not go against" in reply -> "WRONG: calls it safe"
+                else -> "ok"
+            }
+        }
+
+        private fun traces(word: String): (String) -> String = { reply ->
+            when {
+                word !in reply -> "WRONG: does not mention $word"
+                "may contain" !in reply && "traces" !in reply -> "WRONG: does not say may contain"
+                UNSURE.any { it in reply } -> "WRONG: unsure"
+                "looks safe" in reply -> "WRONG: calls it safe"
+                else -> "ok"
+            }
+        }
+
+        private val safe: (String) -> String = { reply ->
+            when {
+                UNSURE.any { it in reply } -> "WRONG: unsure"
+                "not safe" in reply || "be careful" in reply -> "WRONG: calls it unsafe"
+                "safe" !in reply -> "WRONG: does not say safe"
+                else -> "ok"
+            }
+        }
+
+        val REAL_LABEL_CASES = listOf(
+            "Allergic to soy." to definite("soy"),
+            "soy" to definite("soy"),
+            "I can't eat soy or peanuts." to definite("soy"),
+            "Allergic to walnuts and soy. Vegetarian." to definite("soy"),
+            "Allergic to wheat and gluten." to definite("wheat"),
+            "Allergic to milk." to traces("milk"),
+            "Allergic to walnuts." to safe,
+            "I don't eat meat." to safe,
+        )
     }
 }

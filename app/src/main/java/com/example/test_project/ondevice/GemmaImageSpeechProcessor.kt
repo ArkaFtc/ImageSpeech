@@ -120,11 +120,15 @@ class GemmaImageSpeechProcessor(
             val session: ModelSession
             val newImages: List<Bitmap>
             try {
+                var waited = false
                 val prepared = prepareSession(images, audioWav, text) {
+                    waited = true
                     send(ReadingEvent.Status(PREPARING))
                 }
                 session = prepared.first
                 newImages = prepared.second
+                // The photo is ready; say what happens next instead of still "Reading and Processing".
+                if (waited && request.action != ProcessingAction.PREPARE) send(ReadingEvent.Status(working(request.action)))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -196,28 +200,36 @@ class GemmaImageSpeechProcessor(
                 send(ReadingEvent.TextDelta(text))
                 chunker.offer(text).forEach { sentences.send(it) }
             }
-            // A dietary check of something that is not food stays silent. Its first words are
-            // held back until it is clear whether they are the "not food" reply.
-            var held: StringBuilder? = if (request.action == ProcessingAction.DIET_CHECK) StringBuilder() else null
+            // A dietary check is two short exchanges that are never shown; the verdict built from
+            // them is shown and spoken once both are complete (see DietCheck).
+            val form = if (request.action == ProcessingAction.DIET_CHECK) StringBuilder() else null
+            var matchTurn: Turn? = null
             var notFood = false
-            suspend fun offer(text: String, last: Boolean = false) {
-                val waiting = held ?: return emit(text)
-                if (notFood) return
-                waiting.append(text)
-                val letters = lettersOf(waiting)
-                if (letters.startsWith(NOT_FOOD_LETTERS)) {
-                    notFood = true
-                } else if (last || letters.length >= NOT_FOOD_LETTERS.length || !NOT_FOOD_LETTERS.startsWith(letters)) {
-                    held = null
-                    emit(waiting.toString())
-                }
-            }
             var completed = false
             var interrupted = false
             var failure: Exception? = null
             try {
-                session.send(prompt).collect { delta -> offer(plain.offer(delta)) }
-                offer(plain.flush(), last = true)
+                session.send(prompt).collect { delta ->
+                    if (form != null) form.append(delta) else emit(plain.offer(delta))
+                }
+                if (form != null) {
+                    val label = DietCheck.readLabel(form.toString())
+                    if (label == null) {
+                        notFood = form.isNotBlank()
+                    } else {
+                        val matchQuestion = DietCheck.matchQuestion(question, label)
+                        var matches: String? = null
+                        if (matchQuestion != null) {
+                            val reply2 = StringBuilder()
+                            session.send(ModelPrompt(emptyList(), null, matchQuestion)).collect { reply2.append(it) }
+                            matches = reply2.toString().trim()
+                            matchTurn = Turn(emptyList(), null, matchQuestion, matches.ifEmpty { "NONE" })
+                        }
+                        emit(DietCheck.verdict(label, matches))
+                    }
+                } else {
+                    emit(plain.flush())
+                }
                 completed = reply.isNotBlank() || notFood
             } catch (cancelled: CancellationException) {
                 interrupted = true
@@ -228,7 +240,7 @@ class GemmaImageSpeechProcessor(
                 if (interrupted) {
                     // Stopped by the user or a newer request. The conversation, with its processed
                     // photos, stays usable; keeping it is what makes the next question fast.
-                    keepInterrupted(session, audioWav, text.length + reply.length)
+                    keepInterrupted(session, audioWav, text.length + reply.length + (form?.length ?: 0))
                 } else if (!completed) {
                     // A failed or empty turn leaves the native conversation in an unknown state.
                     // Rebuild next time.
@@ -258,17 +270,19 @@ class GemmaImageSpeechProcessor(
             speech.join()
             if (notFood) {
                 // Kept in the conversation as the model said it, so follow-ups stay consistent.
-                commit(mySubject, Turn(emptyList(), null, text, NOT_FOOD), images)
+                commit(mySubject, Turn(emptyList(), null, text, DietCheck.NOT_FOOD), images)
                 send(ReadingEvent.Status(PHOTO_READY))
                 send(ReadingEvent.Complete(emptyList(), "", ProcessingMetrics(firstTextMs, null, clock() - started, inputBytes)))
                 return@busy
             }
             val answer = reply.toString().trim()
-            commit(mySubject, Turn(emptyList(), audioWav, text, answer), images)
+            // The conversation keeps what Gemma actually said: for a dietary check, its two replies.
+            commit(mySubject, Turn(emptyList(), audioWav, text, form?.toString()?.trim() ?: answer), images)
+            matchTurn?.let { commit(mySubject, it, images) }
             val total = clock() - started
             // Off unless enabled for troubleshooting: adb shell setprop log.tag.GemmaAnswers DEBUG
             if (Log.isLoggable(ANSWER_LOG_TAG, Log.DEBUG)) {
-                Log.d(ANSWER_LOG_TAG, "prompt=${prompt.text.take(200)} | answer=${answer.take(300).replace('\n', ' ')}")
+                Log.d(ANSWER_LOG_TAG, "prompt=${prompt.text.take(200)} | answer=${(form?.let { "$it || matches: ${matchTurn?.reply}" } ?: answer).take(1500).replace("\n", " | ")}")
             }
             Log.i(TAG, "gemma firstTextMs=$firstTextMs firstAudioReadyMs=$firstAudioMs totalMs=$total inputBytes=$inputBytes")
             send(ReadingEvent.Complete(emptyList(), answer, ProcessingMetrics(firstTextMs, firstAudioMs, total, inputBytes)))
@@ -469,12 +483,6 @@ class GemmaImageSpeechProcessor(
         const val PREFACE_TEXT = "Here is a photo."
         const val PREFACE_REPLY = "I can see the photo. What would you like to know?"
 
-        /** The whole reply to a dietary check of something that is not food. Never shown. */
-        const val NOT_FOOD = "NOT FOOD"
-        private val NOT_FOOD_LETTERS = lettersOf(NOT_FOOD)
-
-        private fun lettersOf(text: CharSequence): String = text.filter { it.isLetter() }.toString().uppercase()
-
         /** Adds a photo to a live conversation; the model's short reply becomes part of it. */
         const val ANOTHER_VIEW_TEXT = "Here is another photo of the same thing. Reply only: I can see it."
 
@@ -495,14 +503,7 @@ class GemmaImageSpeechProcessor(
             ProcessingAction.READ_ALL -> "Read all visible text, including peripheral text, page numbers, running headers, labels, and other visible wording."
             ProcessingAction.ASK ->
                 question.ifEmpty { "Answer the spoken question in the attached audio." }
-            ProcessingAction.DIET_CHECK ->
-                "My dietary restrictions: $question\n" +
-                    "Could this go against my restrictions? Check the food, drink, packaging, ingredients, labels, " +
-                    "descriptions and warnings in the photo, including ingredients made from what I avoid and " +
-                    "\"may contain\" warnings. Start by saying whether it looks safe for me, then name anything that goes " +
-                    "against my restrictions. If the ingredients are not visible, say you cannot tell for sure. " +
-                    "Keep it to one or two short sentences.\n" +
-                    "Only if the photo has nothing to do with food or drink at all, reply only: $NOT_FOOD"
+            ProcessingAction.DIET_CHECK -> DietCheck.instruction(question)
         }
 
         fun estimate(images: Int, audioWav: ByteArray?, chars: Int): Int {

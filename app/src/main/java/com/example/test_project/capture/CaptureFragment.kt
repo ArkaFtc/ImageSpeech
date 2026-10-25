@@ -7,9 +7,17 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Bundle
 import android.util.Log
+import android.view.OrientationEventListener
 import android.view.ScaleGestureDetector
+import android.view.Surface
 import android.view.View
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.widget.Button
+import android.widget.ImageButton
+import androidx.appcompat.app.AlertDialog
+import com.example.test_project.MicSetting
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +56,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private lateinit var status: TextView
     private lateinit var shutter: Button
+    private lateinit var micButton: ImageButton
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
@@ -75,6 +84,28 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     private var boundCamera: Camera? = null
     private var requestedZoomRatio = 1f
     private var stillCapture: ImageCapture? = null
+    private var frameAnalysis: ImageAnalysis? = null
+
+    /**
+     * The app stays in portrait: rotating it rebuilt the screen mid-answer, cutting speech off and
+     * leaving no room for the controls. Photos still come out upright when the phone is held
+     * sideways, because the camera is told which way up the phone is.
+     */
+    private val orientation by lazy {
+        object : OrientationEventListener(requireContext()) {
+            override fun onOrientationChanged(degrees: Int) {
+                if (degrees == ORIENTATION_UNKNOWN) return
+                val rotation = when (degrees) {
+                    in 45 until 135 -> Surface.ROTATION_270
+                    in 135 until 225 -> Surface.ROTATION_180
+                    in 225 until 315 -> Surface.ROTATION_90
+                    else -> Surface.ROTATION_0
+                }
+                stillCapture?.targetRotation = rotation
+                frameAnalysis?.targetRotation = rotation
+            }
+        }
+    }
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
@@ -91,6 +122,18 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
             }
         }
 
+    /** Asked again every time the microphone is unmuted without access. */
+    private val micPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                Toast.makeText(requireContext(), R.string.mic_now_on, Toast.LENGTH_SHORT).show()
+            } else if (!shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+                // Android no longer shows its prompt after repeated denials; settings is the way.
+                showMicBlocked()
+            }
+            refreshMic()
+        }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         acceptingFrames = true
         firstFrame = CompletableDeferred()
@@ -102,6 +145,9 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
         view.findViewById<View>(R.id.btnSettings).setOnClickListener { host.showProcessingSettings() }
         view.findViewById<View>(R.id.btnProfile).setOnClickListener { host.showProfile() }
+        micButton = view.findViewById(R.id.btnMic)
+        micButton.setOnClickListener { toggleMic() }
+        refreshMic()
         val missing = CAMERA_PERMISSIONS.filterNot(::isGranted)
         if (missing.isEmpty()) {
             startCamera()
@@ -112,10 +158,51 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     override fun onStart() {
         super.onStart()
+        orientation.enable()
         // Coming back from review means the last shot has been dealt with; the button is live
         // again.
         shutter.isEnabled = true
         status.text = getString(R.string.capture_hint)
+        // Access may have been changed in settings meanwhile.
+        refreshMic()
+    }
+
+    // ------------------------------------------------------------------ microphone switch
+
+    private fun toggleMic() {
+        val context = requireContext()
+        if (MicSetting.isOn(context)) {
+            MicSetting.setMuted(context, true)
+            Toast.makeText(context, R.string.mic_now_muted, Toast.LENGTH_SHORT).show()
+        } else {
+            MicSetting.setMuted(context, false)
+            if (MicSetting.hasPermission(context)) {
+                Toast.makeText(context, R.string.mic_now_on, Toast.LENGTH_SHORT).show()
+            } else {
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+        refreshMic()
+    }
+
+    private fun refreshMic() {
+        if (!this::micButton.isInitialized) return
+        val on = MicSetting.isOn(requireContext())
+        micButton.setImageResource(if (on) R.drawable.ic_mic_on else R.drawable.ic_mic_off)
+        micButton.contentDescription = getString(if (on) R.string.mic_on_description else R.string.mic_off_description)
+    }
+
+    private fun showMicBlocked() {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.mic_blocked_title)
+            .setMessage(R.string.mic_blocked_message)
+            .setPositiveButton(R.string.open_settings) { _, _ ->
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", requireContext().packageName, null)),
+                )
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     // ------------------------------------------------------------------ the shutter
@@ -268,6 +355,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                         .also { it.setAnalyzer(analysisExecutor, ::considerFrame) }
                 val capture = PhotoCapture.create()
                 stillCapture = capture
+                frameAnalysis = analysis
 
                 // The back camera is the one that matters, but it is not always the one that exists
                 // -
@@ -379,6 +467,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     // ------------------------------------------------------------------ lifecycle
 
     override fun onStop() {
+        orientation.disable()
         captureJob?.cancel()
         collecting = false
         super.onStop()
@@ -391,6 +480,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         boundCamera = null
         requestedZoomRatio = 1f
         stillCapture = null
+        frameAnalysis = null
         super.onDestroyView()
         captureJob?.cancel()
         captureJob = null
