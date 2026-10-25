@@ -95,12 +95,22 @@ class ImageSpeechViewModel(application: Application) : AndroidViewModel(applicat
         lastRequest?.let { start(it, forceLocal) }
     }
 
-    fun cancelProcessing(clearState: Boolean = false) {
+    /**
+     * Stops the request and any of its audio still queued. [stoppedStatus] replaces the status of
+     * a request stopped before it wrote anything, so it does not keep saying it is working.
+     */
+    fun cancelProcessing(clearState: Boolean = false, stoppedStatus: String? = null) {
         generation++
         active?.cancel()
         active = null
         if (clearState) lastRequest = null
-        _review.value = if (clearState) ReviewRunState() else _review.value.copy(running = false)
+        val current = _review.value
+        _review.value = when {
+            clearState -> ReviewRunState()
+            stoppedStatus != null && current.running && current.response.isBlank() ->
+                current.copy(running = false, status = stoppedStatus)
+            else -> current.copy(running = false)
+        }
     }
 
     /** Stops processing and waits for it, so native model memory can be freed safely afterwards. */

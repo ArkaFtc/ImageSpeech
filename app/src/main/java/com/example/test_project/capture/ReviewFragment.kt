@@ -33,6 +33,7 @@ import com.example.test_project.contract.ProcessingAction
 import com.example.test_project.contract.RecordedAudio
 import com.example.test_project.contract.SpokenAudio
 import com.example.test_project.contract.TextBlock
+import com.example.test_project.profile.Profile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -89,10 +90,14 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             host.processorRouter.resetConversation()
             host.showCapture()
         }
+        // Stop only stops talking; the photo and the conversation about it stay.
         view.findViewById<View>(R.id.btnStop).setOnClickListener {
             stopVoice()
-            appState.cancelProcessing()
-            host.showCapture()
+            val state = appState.review.value
+            // Getting the photo ready is silent, and stopping it would only delay the next answer.
+            if (state.running && state.action == ProcessingAction.PREPARE) return@setOnClickListener
+            // Also drops answer audio still queued to play.
+            appState.cancelProcessing(stoppedStatus = getString(R.string.stopped))
         }
         view.findViewById<Button>(R.id.btnReadAll).setOnClickListener {
             process(null, action = ProcessingAction.READ_ALL)
@@ -153,14 +158,21 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         shot.question = null
         if (spokenQuestion != null) typed.setText(spokenQuestion)
         observeProcessing()
+        // Nothing is read aloud on its own: the photo is only made ready until the user asks,
+        // except for the check against the dietary restrictions in the profile.
+        val dietary = Profile.dietary(requireContext())
+        val action = when {
+            clip != null || spokenQuestion != null -> ProcessingAction.ASK
+            host.hasGemma && dietary.isNotBlank() -> ProcessingAction.DIET_CHECK
+            else -> ProcessingAction.PREPARE
+        }
         val initial = ProcessingRequest(
             shot.frame,
             shot.additionalFrames.toList(),
             clip,
             shot.mode,
-            // Nothing is read aloud on its own: the photo is only made ready until the user asks.
-            if (clip != null || spokenQuestion != null) ProcessingAction.ASK else ProcessingAction.PREPARE,
-            spokenQuestion,
+            action,
+            if (action == ProcessingAction.DIET_CHECK) dietary else spokenQuestion,
         )
         appState.ensureInitial(initial)
     }
@@ -414,11 +426,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         updateMoreDetail()
     }
 
-    /** More detail is offered once a summary or an answer to a question has finished. */
+    /** More detail is offered once a summary, an answer or a dietary check has finished. */
     private fun updateMoreDetail() {
         val state = appState.review.value
         val offered = !typing && state.complete && state.failure == null && state.response.isNotBlank() &&
-            (state.action == ProcessingAction.SUMMARIZE || state.action == ProcessingAction.ASK)
+            state.action in MORE_DETAIL_AFTER
         view?.findViewById<View>(R.id.btnMoreDetail)?.visibility = if (offered) View.VISIBLE else View.GONE
     }
 
@@ -451,6 +463,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     private companion object {
         const val STATUS_HEIGHT_DP = 140
         const val STACK_BUTTONS_AT_SCALE = 1.3f
+        val MORE_DETAIL_AFTER = setOf(ProcessingAction.SUMMARIZE, ProcessingAction.ASK, ProcessingAction.DIET_CHECK)
     }
 
     override fun onStop() {

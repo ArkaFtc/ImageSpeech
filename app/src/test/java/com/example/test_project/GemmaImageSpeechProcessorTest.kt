@@ -106,6 +106,9 @@ class GemmaImageSpeechProcessorTest {
         clock = { 0L },
     )
 
+    private fun dietCheck(image: Bitmap, restrictions: String) =
+        ProcessingRequest(image, action = ProcessingAction.DIET_CHECK, question = restrictions)
+
     private fun read(image: Bitmap, extra: List<Bitmap> = emptyList()) =
         ProcessingRequest(image, extra, action = ProcessingAction.READ)
 
@@ -180,6 +183,43 @@ class GemmaImageSpeechProcessorTest {
         val photo = bitmap()
 
         gemma.process(ask(photo, "What flavor are they?")).toList()
+        gemma.process(ProcessingRequest(photo, action = ProcessingAction.MORE_DETAIL)).toList()
+
+        assertEquals(1, model.opened.size)
+        assertTrue(model.prompts[1].text.startsWith("Tell me more"))
+    }
+
+    @Test
+    fun dietCheckOfSomethingNotFoodStaysSilent() = runTest {
+        val model = FakeModel(FakeModel.Chunks("NOT ", "FOOD."))
+        val events = processor(model).process(dietCheck(bitmap(), "Allergic to walnuts.")).toList()
+
+        assertTrue(model.prompts[0].text.startsWith("My dietary restrictions: Allergic to walnuts."))
+        assertTrue(events.none { it is ReadingEvent.TextDelta || it is ReadingEvent.Audio })
+        assertTrue(events.any { it is ReadingEvent.Status && it.text == GemmaImageSpeechProcessor.PHOTO_READY })
+        assertEquals("", (events.last() as ReadingEvent.Complete).responseText)
+        assertTrue(spoken.isEmpty())
+    }
+
+    @Test
+    fun dietCheckOfFoodIsShownAndSpoken() = runTest {
+        // "No" starts like "NOT FOOD", so it is held back only until it clearly is not.
+        val model = FakeModel(FakeModel.Chunks("No", ", it is not safe", ". It contains walnuts."))
+        val events = processor(model).process(dietCheck(bitmap(), "Allergic to walnuts.")).toList()
+
+        val answer = "No, it is not safe. It contains walnuts."
+        assertEquals(answer, events.filterIsInstance<ReadingEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(answer, (events.last() as ReadingEvent.Complete).responseText)
+        assertEquals(answer, spoken.joinToString(" "))
+    }
+
+    @Test
+    fun moreDetailFollowsADietCheck() = runTest {
+        val model = FakeModel(FakeModel.Chunks("It contains walnuts."), FakeModel.Chunks("The ingredients list walnut pieces and walnut oil."))
+        val gemma = processor(model)
+        val photo = bitmap()
+
+        gemma.process(dietCheck(photo, "Allergic to walnuts.")).toList()
         gemma.process(ProcessingRequest(photo, action = ProcessingAction.MORE_DETAIL)).toList()
 
         assertEquals(1, model.opened.size)

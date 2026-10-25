@@ -118,6 +118,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         // left the microphone unasked for good once the camera had been granted, and a press then
         // recorded silence - which the ask button reports as not having heard a question.
         view.findViewById<View>(R.id.btnSettings).setOnClickListener { host.showProcessingSettings() }
+        view.findViewById<View>(R.id.btnProfile).setOnClickListener { host.showProfile() }
         val missing = CAMERA_PERMISSIONS.filterNot(::isGranted)
         if (missing.isEmpty()) {
             startCamera()

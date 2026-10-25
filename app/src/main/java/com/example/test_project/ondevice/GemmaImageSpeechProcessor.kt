@@ -188,13 +188,29 @@ class GemmaImageSpeechProcessor(
                 send(ReadingEvent.TextDelta(text))
                 chunker.offer(text).forEach { sentences.send(it) }
             }
+            // A dietary check of something that is not food stays silent. Its first words are
+            // held back until it is clear whether they are the "not food" reply.
+            var held: StringBuilder? = if (request.action == ProcessingAction.DIET_CHECK) StringBuilder() else null
+            var notFood = false
+            suspend fun offer(text: String, last: Boolean = false) {
+                val waiting = held ?: return emit(text)
+                if (notFood) return
+                waiting.append(text)
+                val letters = lettersOf(waiting)
+                if (letters.startsWith(NOT_FOOD_LETTERS)) {
+                    notFood = true
+                } else if (last || letters.length >= NOT_FOOD_LETTERS.length || !NOT_FOOD_LETTERS.startsWith(letters)) {
+                    held = null
+                    emit(waiting.toString())
+                }
+            }
             var completed = false
             var interrupted = false
             var failure: Exception? = null
             try {
-                session.send(prompt).collect { delta -> emit(plain.offer(delta)) }
-                emit(plain.flush())
-                completed = reply.isNotBlank()
+                session.send(prompt).collect { delta -> offer(plain.offer(delta)) }
+                offer(plain.flush(), last = true)
+                completed = reply.isNotBlank() || notFood
             } catch (cancelled: CancellationException) {
                 interrupted = true
                 throw cancelled
@@ -232,6 +248,13 @@ class GemmaImageSpeechProcessor(
             chunker.flush()?.let { sentences.send(it) }
             sentences.close()
             speech.join()
+            if (notFood) {
+                // Kept in the conversation as the model said it, so follow-ups stay consistent.
+                commit(mySubject, Turn(emptyList(), null, text, NOT_FOOD), images)
+                send(ReadingEvent.Status(PHOTO_READY))
+                send(ReadingEvent.Complete(emptyList(), "", ProcessingMetrics(firstTextMs, null, clock() - started, inputBytes)))
+                return@busy
+            }
             val answer = reply.toString().trim()
             commit(mySubject, Turn(emptyList(), audioWav, text, answer), images)
             val total = clock() - started
@@ -417,6 +440,7 @@ class GemmaImageSpeechProcessor(
             ProcessingAction.ASK -> "Thinking on this phone…"
             ProcessingAction.SUMMARIZE -> "Summarizing on this phone…"
             ProcessingAction.MORE_DETAIL -> "Adding detail on this phone…"
+            ProcessingAction.DIET_CHECK -> "Checking for your dietary restrictions…"
             ProcessingAction.READ, ProcessingAction.READ_ALL -> "Reading on this phone…"
         }
 
@@ -427,6 +451,12 @@ class GemmaImageSpeechProcessor(
          */
         const val PREFACE_TEXT = "Here is a photo."
         const val PREFACE_REPLY = "I can see the photo. What would you like to know?"
+
+        /** The whole reply to a dietary check of something that is not food. Never shown. */
+        const val NOT_FOOD = "NOT FOOD"
+        private val NOT_FOOD_LETTERS = lettersOf(NOT_FOOD)
+
+        private fun lettersOf(text: CharSequence): String = text.filter { it.isLetter() }.toString().uppercase()
 
         /** Adds a photo to a live conversation; the model's short reply becomes part of it. */
         const val ANOTHER_VIEW_TEXT = "Here is another photo of the same thing. Reply only: I can see it."
@@ -448,6 +478,14 @@ class GemmaImageSpeechProcessor(
             ProcessingAction.READ_ALL -> "Read all visible text, including peripheral text, page numbers, running headers, labels, and other visible wording."
             ProcessingAction.ASK ->
                 question.ifEmpty { "Answer the spoken question in the attached audio." }
+            ProcessingAction.DIET_CHECK ->
+                "My dietary restrictions: $question\n" +
+                    "Could this go against my restrictions? Check the food, drink, packaging, ingredients, labels, " +
+                    "descriptions and warnings in the photo, including ingredients made from what I avoid and " +
+                    "\"may contain\" warnings. Start by saying whether it looks safe for me, then name anything that goes " +
+                    "against my restrictions. If the ingredients are not visible, say you cannot tell for sure. " +
+                    "Keep it to one or two short sentences.\n" +
+                    "Only if the photo has nothing to do with food or drink at all, reply only: $NOT_FOOD"
         }
 
         fun estimate(images: Int, audioWav: ByteArray?, chars: Int): Int {

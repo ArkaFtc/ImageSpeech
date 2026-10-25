@@ -23,6 +23,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.commit
+import com.example.test_project.profile.Profile
+import com.example.test_project.profile.ProfileFragment
 import androidx.lifecycle.lifecycleScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -111,6 +113,8 @@ class MainActivity : AppCompatActivity() {
                 setReorderingAllowed(true)
                 replace(R.id.screen, CaptureFragment())
             }
+            // First launch: the profile page opens over the camera, once.
+            if (!Profile.isSetUp(this)) showProfile(firstRun = true)
         }
     }
 
@@ -198,6 +202,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------ processing settings
+
+    /** Opens the profile page, where dietary restrictions are typed. */
+    fun showProfile(firstRun: Boolean = false) {
+        if (supportFragmentManager.isStateSaved || supportFragmentManager.findFragmentByTag(ProfileFragment.TAG) != null) return
+        ProfileFragment.newInstance(firstRun).show(supportFragmentManager, ProfileFragment.TAG)
+    }
 
     fun showProcessingSettings() {
         settingsDialog?.dismiss()
