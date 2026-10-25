@@ -297,6 +297,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     stopVoice()
+                    // The answer being read must stop for good before listening: otherwise its
+                    // remaining sentences play while the question is spoken, and the microphone
+                    // hears the app's own voice mixed into the question.
+                    val current = appState.review.value
+                    if (!(current.running && current.action == ProcessingAction.PREPARE)) appState.cancelProcessing()
                     if (!host.hasGemma) {
                         status.setText(R.string.gemma_required_for_questions)
                         return@setOnTouchListener true
