@@ -1,10 +1,21 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- The profile stays on this phone: not in cloud backups, not copied to a new phone. -->
+<?xml version="1.0" encoding="utf-8"?><!--
+   Sample data extraction rules file; uncomment and customize as necessary.
+   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
+   for details.
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="sharedpref" path="profile.xml" />
+        <!-- TODO: Use <include> and <exclude> to control what is backed up.
+        <include .../>
+        <exclude .../>
+        -->
     </cloud-backup>
     <device-transfer>
-        <exclude domain="sharedpref" path="profile.xml" />
     </device-transfer>
+    <!--
+    <device-transfer>
+        <include .../>
+        <exclude .../>
+    </device-transfer>
+    -->
 </data-extraction-rules>

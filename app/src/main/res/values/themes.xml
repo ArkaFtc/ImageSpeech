@@ -2,11 +2,4 @@
 <resources>
 
     <style name="Theme.Test_project" parent="Theme.AppCompat.Light.NoActionBar" />
-
-    <!-- A full-screen page shown as a dialog, such as the profile. -->
-    <style name="Theme.Test_project.Page" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:windowIsFloating">false</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowNoTitle">true</item>
-    </style>
 </resources>
