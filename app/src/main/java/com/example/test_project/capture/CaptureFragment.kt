@@ -7,7 +7,10 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Bundle
 import android.util.Log
-import android.view.OrientationEventListener
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.view.ScaleGestureDetector
 import android.view.Surface
 import android.view.View
@@ -85,26 +88,39 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     private var requestedZoomRatio = 1f
     private var stillCapture: ImageCapture? = null
     private var frameAnalysis: ImageAnalysis? = null
+    /** Which way up the phone was last seen, in degrees; -1 until known. Logged per photo. */
+    @Volatile private var lastDegrees = UNKNOWN_DEGREES
 
     /**
      * The app stays in portrait: rotating it rebuilt the screen mid-answer, cutting speech off and
      * leaving no room for the controls. Photos still come out upright when the phone is held
      * sideways, because the camera is told which way up the phone is.
+     *
+     * Android's OrientationEventListener reports nothing until the phone is tilted about 25
+     * degrees from flat, so a phone angled down at a label never counted as sideways (measured on
+     * device). Gravity is read directly instead, from about 10 degrees of tilt; flatter than that,
+     * the last direction seen is kept.
      */
-    private val orientation by lazy {
-        object : OrientationEventListener(requireContext()) {
-            override fun onOrientationChanged(degrees: Int) {
-                if (degrees == ORIENTATION_UNKNOWN) return
-                val rotation = when (degrees) {
-                    in 45 until 135 -> Surface.ROTATION_270
-                    in 135 until 225 -> Surface.ROTATION_180
-                    in 225 until 315 -> Surface.ROTATION_90
-                    else -> Surface.ROTATION_0
-                }
-                stillCapture?.targetRotation = rotation
-                frameAnalysis?.targetRotation = rotation
-            }
+    private val gravityListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val reading = PhoneRotation.fromGravity(event.values[0], event.values[1]) ?: return
+            lastDegrees = reading.degrees
+            val rotation = reading.surfaceRotation
+            stillCapture?.targetRotation = rotation
+            frameAnalysis?.targetRotation = rotation
         }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
+
+    private fun startOrientation() {
+        val sensors = requireContext().getSystemService(SensorManager::class.java) ?: return
+        val sensor = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+        sensors.registerListener(gravityListener, sensor, SensorManager.SENSOR_DELAY_UI)
+    }
+
+    private fun stopOrientation() {
+        requireContext().getSystemService(SensorManager::class.java)?.unregisterListener(gravityListener)
     }
 
     private val permissionLauncher =
@@ -158,7 +174,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     override fun onStart() {
         super.onStart()
-        orientation.enable()
+        startOrientation()
         // Coming back from review means the last shot has been dealt with; the button is live
         // again.
         shutter.isEnabled = true
@@ -242,7 +258,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                 cameraProvider?.unbindAll()
                 Log.i(
                     "ReadingTiming",
-                    "captureSize=${frame.width}x${frame.height} still=${still != null}",
+                    "captureSize=${frame.width}x${frame.height} still=${still != null} " +
+                        "targetRotation=${stillCapture?.targetRotation} orientationDegrees=$lastDegrees",
                 )
                 val additional = shots.addingView
                 // The single general reading mode keeps OCR coordinates in the captured image's
@@ -467,7 +484,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     // ------------------------------------------------------------------ lifecycle
 
     override fun onStop() {
-        orientation.disable()
+        stopOrientation()
         captureJob?.cancel()
         collecting = false
         super.onStop()
@@ -500,6 +517,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     companion object {
         private const val TAG = "ImageSpeech"
+
+        private const val UNKNOWN_DEGREES = -1
 
         /**
          * How long the burst collects before committing to a frame. Long enough to see several
