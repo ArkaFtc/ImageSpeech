@@ -121,7 +121,7 @@ class GemmaImageSpeechProcessor(
             val newImages: List<Bitmap>
             try {
                 val prepared = prepareSession(images, audioWav, text) {
-                    send(ReadingEvent.Status("Looking at the photo on this phone…"))
+                    send(ReadingEvent.Status(PREPARING))
                 }
                 session = prepared.first
                 newImages = prepared.second
@@ -179,16 +179,21 @@ class GemmaImageSpeechProcessor(
             // Gemma's line breaks are meaningful, and speech should start with the first phrase.
             val chunker = SentenceChunker(lineBreaksEndSentences = true, quickFirstPiece = true)
             val reply = StringBuilder()
+            // Markdown symbols are removed before anything is shown or spoken.
+            val plain = PlainText()
+            suspend fun emit(text: String) {
+                if (text.isEmpty()) return
+                if (firstTextMs == null) firstTextMs = clock() - started
+                reply.append(text)
+                send(ReadingEvent.TextDelta(text))
+                chunker.offer(text).forEach { sentences.send(it) }
+            }
             var completed = false
             var interrupted = false
             var failure: Exception? = null
             try {
-                session.send(prompt).collect { delta ->
-                    if (firstTextMs == null) firstTextMs = clock() - started
-                    reply.append(delta)
-                    send(ReadingEvent.TextDelta(delta))
-                    chunker.offer(delta).forEach { sentences.send(it) }
-                }
+                session.send(prompt).collect { delta -> emit(plain.offer(delta)) }
+                emit(plain.flush())
                 completed = reply.isNotBlank()
             } catch (cancelled: CancellationException) {
                 interrupted = true
@@ -404,13 +409,14 @@ class GemmaImageSpeechProcessor(
 
         private const val ANSWER_LOG_TAG = "GemmaAnswers"
 
+        const val PREPARING = "Reading and Processing the image. Please give it a few seconds."
         const val PHOTO_READY = "Photo ready. Ask a question, Summarize, or Read all text."
 
         private fun working(action: ProcessingAction): String = when (action) {
-            ProcessingAction.PREPARE -> "Looking at the photo on this phone…"
+            ProcessingAction.PREPARE -> PREPARING
             ProcessingAction.ASK -> "Thinking on this phone…"
             ProcessingAction.SUMMARIZE -> "Summarizing on this phone…"
-            ProcessingAction.SUMMARIZE_DETAILED -> "Adding detail on this phone…"
+            ProcessingAction.MORE_DETAIL -> "Adding detail on this phone…"
             ProcessingAction.READ, ProcessingAction.READ_ALL -> "Reading on this phone…"
         }
 
@@ -434,8 +440,8 @@ class GemmaImageSpeechProcessor(
             ProcessingAction.SUMMARIZE ->
                 "Summarize this in one to three sentences: one for a little text, up to three for a lot. " +
                     "Say what it is and the most important information."
-            ProcessingAction.SUMMARIZE_DETAILED ->
-                "Give a more detailed summary. Cover the main points and the important details, " +
+            ProcessingAction.MORE_DETAIL ->
+                "Tell me more about that. Give a more detailed answer with the important details, " +
                     "such as numbers, dates, warnings and conditions, in a few short paragraphs of plain " +
                     "sentences. It will be read aloud, so do not use bullet points, headings or symbols like asterisks."
             ProcessingAction.READ -> "Read the meaningful visible text faithfully in logical order."

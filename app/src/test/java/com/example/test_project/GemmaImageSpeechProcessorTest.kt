@@ -166,11 +166,35 @@ class GemmaImageSpeechProcessorTest {
         val photo = bitmap()
 
         gemma.process(ProcessingRequest(photo, action = ProcessingAction.SUMMARIZE)).toList()
-        val detailed = gemma.process(ProcessingRequest(photo, action = ProcessingAction.SUMMARIZE_DETAILED)).toList()
+        val detailed = gemma.process(ProcessingRequest(photo, action = ProcessingAction.MORE_DETAIL)).toList()
 
         assertEquals("no second photo processing", 1, model.opened.size)
-        assertTrue(model.prompts[1].text.startsWith("Give a more detailed summary"))
+        assertTrue(model.prompts[1].text.startsWith("Tell me more"))
         assertEquals("They are leaf shaped. Serve with tea.", (detailed.last() as ReadingEvent.Complete).responseText)
+    }
+
+    @Test
+    fun moreDetailFollowsAQuestion() = runTest {
+        val model = FakeModel(FakeModel.Chunks("Maple."), FakeModel.Chunks("Maple cream cookies, with real maple syrup."))
+        val gemma = processor(model)
+        val photo = bitmap()
+
+        gemma.process(ask(photo, "What flavor are they?")).toList()
+        gemma.process(ProcessingRequest(photo, action = ProcessingAction.MORE_DETAIL)).toList()
+
+        assertEquals(1, model.opened.size)
+        assertTrue(model.prompts[1].text.startsWith("Tell me more"))
+    }
+
+    @Test
+    fun markdownIsNeitherShownNorSpoken() = runTest {
+        val model = FakeModel(FakeModel.Chunks("**Bold", "** start.\n", "* One\n- Two\n## Head", "ing\nUse `code`."))
+        val events = processor(model).process(ask(bitmap(), "What does it say?")).toList()
+
+        val expected = "Bold start.\nOne\nTwo\nHeading\nUse code."
+        assertEquals(expected, events.filterIsInstance<ReadingEvent.TextDelta>().joinToString("") { it.text })
+        assertEquals(expected, (events.last() as ReadingEvent.Complete).responseText)
+        assertTrue(spoken.none { '*' in it || '#' in it || '`' in it })
     }
 
     @Test
@@ -296,7 +320,7 @@ class GemmaImageSpeechProcessorTest {
         val waiting = CompletableDeferred<Unit>()
         val asking = async {
             gemma.process(ask(photo, "What does it say?"))
-                .onEach { if (it is ReadingEvent.Status && it.text.contains("Looking at the photo")) waiting.complete(Unit) }
+                .onEach { if (it is ReadingEvent.Status && it.text == GemmaImageSpeechProcessor.PREPARING) waiting.complete(Unit) }
                 .toList()
         }
         waiting.await() // the question is now waiting on the photo processing already under way

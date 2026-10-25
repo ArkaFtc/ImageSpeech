@@ -49,11 +49,18 @@ class GemmaSummaryDeviceTest {
                 gemma.resetConversation()
                 gemma.process(ProcessingRequest(photo, action = ProcessingAction.PREPARE)).toList()
                 val short = answer(gemma, photo, ProcessingAction.SUMMARIZE)
-                val detailed = answer(gemma, photo, ProcessingAction.SUMMARIZE_DETAILED)
+                val detailed = answer(gemma, photo, ProcessingAction.MORE_DETAIL)
                 Log.i(TAG, "$name short sentences=${sentences(short)} chars=${short.length} -> ${short.replace('\n', ' ')}")
                 Log.i(TAG, "$name detailed sentences=${sentences(detailed)} chars=${detailed.length} -> ${detailed.take(400).replace('\n', ' ')}")
                 assertTrue("$name: short summary has at most three sentences", sentences(short) in 1..3)
                 assertTrue("$name: more detail is longer", detailed.length > short.length)
+                assertTrue("$name: no Markdown symbols", "*#`".none { it in detailed })
+
+                val asked = answer(gemma, photo, ProcessingAction.ASK, "What is this?")
+                val askedMore = answer(gemma, photo, ProcessingAction.MORE_DETAIL)
+                Log.i(TAG, "$name asked sentences=${sentences(asked)} -> ${asked.replace('\n', ' ')}")
+                Log.i(TAG, "$name asked more chars=${askedMore.length} -> ${askedMore.take(400).replace('\n', ' ')}")
+                assertTrue("$name: more detail after a question is longer", askedMore.length > asked.length)
             }
         } finally {
             gemma.close()
@@ -62,8 +69,8 @@ class GemmaSummaryDeviceTest {
         }
     }
 
-    private suspend fun answer(gemma: GemmaImageSpeechProcessor, photo: Bitmap, action: ProcessingAction): String {
-        val done = gemma.process(ProcessingRequest(photo, action = action)).toList().last()
+    private suspend fun answer(gemma: GemmaImageSpeechProcessor, photo: Bitmap, action: ProcessingAction, question: String? = null): String {
+        val done = gemma.process(ProcessingRequest(photo, action = action, question = question)).toList().last()
         return (done as? ReadingEvent.Complete)?.responseText ?: error("$action failed: $done")
     }
 

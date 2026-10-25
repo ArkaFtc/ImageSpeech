@@ -34,6 +34,7 @@
                 android:minWidth="64dp"
                 android:minHeight="48dp"
                 android:text="@string/text_smaller_symbol"
+                android:textSize="14sp"
                 android:contentDescription="@string/text_smaller" />
 
             <Button
@@ -44,6 +45,7 @@
                 android:minWidth="64dp"
                 android:minHeight="48dp"
                 android:text="@string/text_larger_symbol"
+                android:textSize="26sp"
                 android:contentDescription="@string/text_larger" />
         </LinearLayout>
 

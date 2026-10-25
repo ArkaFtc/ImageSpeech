@@ -13,6 +13,7 @@ class HoldFeedback(private val button: Button) {
     private val originalTint: ColorStateList? = button.backgroundTintList
     private val originalText = button.textColors
     private val originalDescription = button.contentDescription
+    private val originalDrawables = button.compoundDrawablesRelative.copyOf()
     var showing = false
         private set
 
@@ -33,7 +34,7 @@ class HoldFeedback(private val button: Button) {
         showing = false
         button.backgroundTintList = originalTint
         button.setTextColor(originalText)
-        button.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
+        button.setCompoundDrawablesRelative(originalDrawables[0], originalDrawables[1], originalDrawables[2], originalDrawables[3])
         button.contentDescription = originalDescription
     }
 }

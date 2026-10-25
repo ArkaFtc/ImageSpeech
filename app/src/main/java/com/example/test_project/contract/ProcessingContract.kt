@@ -25,8 +25,8 @@ enum class ProcessingAction {
     READ_ALL,
     /** A short summary, one to three sentences. */
     SUMMARIZE,
-    /** A longer summary, as a follow-up to the short one. */
-    SUMMARIZE_DETAILED,
+    /** A longer answer, as a follow-up to the last summary or question. */
+    MORE_DETAIL,
     ASK,
 }
 

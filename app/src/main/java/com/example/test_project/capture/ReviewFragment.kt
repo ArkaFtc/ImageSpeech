@@ -89,7 +89,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             host.processorRouter.resetConversation()
             host.showCapture()
         }
-        view.findViewById<Button>(R.id.btnStop).setOnClickListener {
+        view.findViewById<View>(R.id.btnStop).setOnClickListener {
             stopVoice()
             appState.cancelProcessing()
             host.showCapture()
@@ -103,7 +103,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         }
         view.findViewById<Button>(R.id.btnMoreDetail).setOnClickListener {
             if (!host.hasGemma) status.setText(R.string.gemma_required_for_questions)
-            else process(null, action = ProcessingAction.SUMMARIZE_DETAILED)
+            else process(null, action = ProcessingAction.MORE_DETAIL)
         }
         view.findViewById<View>(R.id.btnReviewSettings).setOnClickListener { host.showProcessingSettings() }
         view.findViewById<Button>(R.id.btnRepeat).setOnClickListener { repeatShownText() }
@@ -374,7 +374,7 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
     fun onTextScaleChanged() {
         if (!this::statusScroll.isInitialized) return
         if (!typing) setTyping(false)
-        // Large text no longer fits three buttons side by side without breaking words.
+        // Large text no longer fits two buttons side by side without breaking words.
         val row = view?.findViewById<LinearLayout>(R.id.readActions) ?: return
         val stacked = host.textScale >= STACK_BUTTONS_AT_SCALE
         row.orientation = if (stacked) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
@@ -383,6 +383,8 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
             val child = row.getChildAt(i)
             val params = child.layoutParams as LinearLayout.LayoutParams
             params.width = if (stacked) LinearLayout.LayoutParams.MATCH_PARENT else 0
+            // Side by side, both buttons take the taller one's height so they line up.
+            params.height = if (stacked) LinearLayout.LayoutParams.WRAP_CONTENT else LinearLayout.LayoutParams.MATCH_PARENT
             params.weight = if (stacked) 0f else 1f
             params.marginStart = if (stacked || i == 0) 0 else gap
             params.topMargin = if (stacked && i > 0) gap else 0
@@ -412,10 +414,11 @@ class ReviewFragment : Fragment(R.layout.fragment_review) {
         updateMoreDetail()
     }
 
-    /** More detail is offered once a short summary has finished. */
+    /** More detail is offered once a summary or an answer to a question has finished. */
     private fun updateMoreDetail() {
         val state = appState.review.value
-        val offered = !typing && state.complete && state.action == ProcessingAction.SUMMARIZE
+        val offered = !typing && state.complete && state.failure == null && state.response.isNotBlank() &&
+            (state.action == ProcessingAction.SUMMARIZE || state.action == ProcessingAction.ASK)
         view?.findViewById<View>(R.id.btnMoreDetail)?.visibility = if (offered) View.VISIBLE else View.GONE
     }
 

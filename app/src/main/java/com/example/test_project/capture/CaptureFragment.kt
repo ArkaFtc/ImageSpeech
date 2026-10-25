@@ -51,6 +51,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
 
     private lateinit var status: TextView
     private lateinit var shutter: Button
+    private lateinit var askButton: Button
 
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
@@ -107,8 +108,10 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         firstFrame = CompletableDeferred()
         status = view.findViewById(R.id.txtCaptureStatus)
         shutter = view.findViewById(R.id.btnShutter)
+        askButton = view.findViewById(R.id.btnCaptureAsk)
         speech = SpeechInput(requireContext()) { heard -> status.text = heard }
         wireShutter()
+        wireAsk()
         wireZoom(view)
 
         // Every missing permission, not just the camera. Gating the whole prompt on the camera
@@ -128,6 +131,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         // Coming back from review means the last shot has been dealt with; the button is live
         // again.
         shutter.isEnabled = true
+        askButton.isEnabled = true
         status.text = getString(R.string.capture_hint)
     }
 
@@ -171,14 +175,8 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
                     } else if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
                         permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
                         status.setText(R.string.mic_permission_then_hold)
-                    } else if (transcribing) {
-                        // The photo is taken now; the question's final words follow a moment later.
-                        val question = CompletableDeferred<String>()
-                        speech?.finish { question.complete(it) }
-                        capture(spoken = question)
                     } else {
-                        val clip = PressPolicy.audioFor(heldMs, audio.stop())
-                        if (clip == null) status.setText(R.string.nothing_heard) else capture(clip)
+                        finishQuestion(heldMs)
                     }
                     true
                 }
@@ -194,9 +192,75 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         }
     }
 
+    /**
+     * The mic button: hold, ask a question, let go. The photo is taken on release and the question
+     * is answered about it, the same as holding Take photo.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun wireAsk() {
+        val holding = HoldFeedback(askButton)
+        var listening = false
+        askButton.setOnTouchListener { button, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    listening = false
+                    if (captureJob?.isActive == true) return@setOnTouchListener true
+                    if (!host.hasGemma) {
+                        status.setText(R.string.gemma_required_for_questions)
+                    } else if (!isGranted(Manifest.permission.RECORD_AUDIO)) {
+                        permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                        status.setText(R.string.mic_permission_then_hold)
+                    } else {
+                        listening = true
+                        pressedAt = SystemClock.elapsedRealtime()
+                        button.isPressed = true
+                        holding.show()
+                        status.setText(R.string.listening)
+                        transcribing = speech?.isAvailable == true
+                        if (transcribing) speech?.start() else audio.start()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    button.isPressed = false
+                    holding.hide()
+                    if (listening) {
+                        listening = false
+                        finishQuestion(SystemClock.elapsedRealtime() - pressedAt)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    button.isPressed = false
+                    holding.hide()
+                    listening = false
+                    speech?.cancel()
+                    audio.release()
+                    status.text = getString(R.string.capture_hint)
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /** A held question has ended: take the photo and send the question with it. */
+    private fun finishQuestion(heldMs: Long) {
+        if (transcribing) {
+            // The photo is taken now; the question's final words follow a moment later.
+            val question = CompletableDeferred<String>()
+            speech?.finish { question.complete(it) }
+            capture(spoken = question)
+        } else {
+            val clip = PressPolicy.audioFor(heldMs, audio.stop())
+            if (clip == null) status.setText(R.string.nothing_heard) else capture(clip)
+        }
+    }
+
     private fun capture(clip: RecordedAudio? = null, spoken: CompletableDeferred<String>? = null) {
         if (captureJob?.isActive == true) return
         shutter.isEnabled = false
+        askButton.isEnabled = false
 
         captureJob =
             viewLifecycleOwner.lifecycleScope.launch {
@@ -298,6 +362,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
     private fun fail(message: String) {
         setStatus(message)
         shutter.isEnabled = true
+        askButton.isEnabled = true
     }
 
     private fun setStatus(text: String) {
@@ -463,6 +528,7 @@ class CaptureFragment : Fragment(R.layout.fragment_capture) {
         speech?.cancel()
         audio.release()
         shutter.isPressed = false
+        askButton.isPressed = false
         super.onStop()
     }
 

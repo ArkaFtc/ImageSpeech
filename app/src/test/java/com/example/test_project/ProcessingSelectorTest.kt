@@ -12,7 +12,7 @@ class ProcessingSelectorTest {
         assertEquals(ProcessingLane.LOCAL, ProcessingSelector.select(false, ProcessingAction.READ_ALL))
         assertEquals(ProcessingLane.GEMMA_REQUIRED, ProcessingSelector.select(false, ProcessingAction.ASK))
         assertEquals(ProcessingLane.GEMMA_REQUIRED, ProcessingSelector.select(false, ProcessingAction.SUMMARIZE))
-        assertEquals(ProcessingLane.GEMMA_REQUIRED, ProcessingSelector.select(false, ProcessingAction.SUMMARIZE_DETAILED))
+        assertEquals(ProcessingLane.GEMMA_REQUIRED, ProcessingSelector.select(false, ProcessingAction.MORE_DETAIL))
         assertEquals("text boxes are still found silently", ProcessingLane.LOCAL, ProcessingSelector.select(false, ProcessingAction.PREPARE))
     }
 

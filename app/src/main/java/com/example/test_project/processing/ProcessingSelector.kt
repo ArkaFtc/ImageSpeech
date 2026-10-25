@@ -8,7 +8,7 @@ object ProcessingSelector {
     fun select(gemmaReady: Boolean, action: ProcessingAction): ProcessingLane = when {
         gemmaReady -> ProcessingLane.GEMMA
         action == ProcessingAction.ASK || action == ProcessingAction.SUMMARIZE ||
-            action == ProcessingAction.SUMMARIZE_DETAILED -> ProcessingLane.GEMMA_REQUIRED
+            action == ProcessingAction.MORE_DETAIL -> ProcessingLane.GEMMA_REQUIRED
         else -> ProcessingLane.LOCAL
     }
 }

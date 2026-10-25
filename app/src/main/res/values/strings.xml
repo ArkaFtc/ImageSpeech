@@ -6,7 +6,7 @@
     <string name="app_name">ImageSpeech</string>
 
     <!-- Screen one: the camera. -->
-    <string name="capture_hint">Tap to take a photo. Hold and speak to ask about it.</string>
+    <string name="capture_hint">Tap Take photo, or hold the mic and ask a question.</string>
     <string name="camera_preview">Camera preview. Pinch to zoom.</string>
     <string name="zoom_in">Zoom in</string>
     <string name="zoom_out">Zoom out</string>
@@ -29,15 +29,17 @@
     <string name="summarize">Summarize</string>
     <string name="summarize_description">Hear a short summary of what the photo shows.</string>
     <string name="more_detail">More detail</string>
-    <string name="more_detail_description">Hear a longer, more detailed summary.</string>
+    <string name="more_detail_description">Hear a longer, more detailed answer.</string>
     <string name="holding_to_talk">Listening. Release to send.</string>
     <string name="new_photo">New photo</string>
     <string name="new_photo_description">Go back to the camera and take another photo.</string>
     <string name="tap_box_to_read">Tap a highlighted box to hear that text.</string>
     <string name="stop">Stop</string>
+    <string name="stop_description">Stop speaking and go back to the camera.</string>
     <string name="ask">Ask</string>
 
     <string name="hold_to_ask">Hold to ask</string>
+    <string name="hold_to_ask_camera_description">Hold and speak a question. When you let go, the photo is taken and your question is answered.</string>
     <string name="hold_to_ask_description">Hold and speak to ask a question about the photo.</string>
     <string name="listening">Listening…</string>
     <string name="finishing_question">Finishing your question…</string>
@@ -71,7 +73,7 @@
     <string name="gemma_required_for_questions">Questions need the on-device Gemma model. See Processing settings. Tap Take photo to read with local OCR.</string>
     <string name="mic_permission_then_hold">Microphone access is ready. Hold the button again and speak.</string>
     <string name="mic_denied">Microphone access was denied. You can still type a question.</string>
-    <string name="type_question">Type a question about the photo</string>
+    <string name="type_question">Type a question</string>
     <string name="type_question_first">Type a question first.</string>
     <string name="retry">Retry</string>
     <string name="read_locally">Read locally</string>
@@ -79,8 +81,8 @@
 
     <string name="repeat">Repeat</string>
     <string name="repeat_description">Say the text in the box at the top again.</string>
-    <string name="text_smaller_symbol">A−</string>
-    <string name="text_larger_symbol">A+</string>
+    <string name="text_smaller_symbol">A</string>
+    <string name="text_larger_symbol">A</string>
     <string name="text_smaller">Smaller text</string>
     <string name="text_larger">Larger text</string>
     <string name="text_size">Text size</string>
