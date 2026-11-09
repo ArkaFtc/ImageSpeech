@@ -38,6 +38,7 @@ class LiteRtGemmaModel(
     private val profile: GemmaProfile = GemmaProfile.LARGE,
     private val sampler: com.google.ai.edge.litertlm.SamplerConfig? = null,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val maxImages: Int = GemmaConfig.MAX_IMAGES,
 ) : OnDeviceModel {
     private val cacheDir = context.applicationContext.cacheDir.absolutePath
     private val loadLock = Mutex()
@@ -79,8 +80,8 @@ class LiteRtGemmaModel(
     private fun create(): Engine {
         val path = store.modelFile.absolutePath
         val tokens = profile.contextTokens
-        val cpu = "CPU" to { EngineConfig(path, Backend.CPU(), Backend.CPU(), Backend.CPU(), tokens, GemmaConfig.MAX_IMAGES, cacheDir) }
-        val gpu = "GPU" to { EngineConfig(path, Backend.GPU(), Backend.GPU(), Backend.CPU(), tokens, GemmaConfig.MAX_IMAGES, cacheDir) }
+        val cpu = "CPU" to { EngineConfig(path, Backend.CPU(), Backend.CPU(), Backend.CPU(), tokens, maxImages, cacheDir) }
+        val gpu = "GPU" to { EngineConfig(path, Backend.GPU(), Backend.GPU(), Backend.CPU(), tokens, maxImages, cacheDir) }
         val attempts = if (profile.useGpu) listOf(gpu, cpu) else listOf(cpu)
         var lastError: Throwable? = null
         for ((name, config) in attempts) {

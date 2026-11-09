@@ -58,6 +58,18 @@ For a side-by-side device test without replacing an existing differently signed 
 
 This uses application ID `com.example.test_project.reading` and label **ImageSpeech Reading Test**. The benchmark activity is debug-only.
 
+### Release builds
+
+`.\gradlew.bat assembleRelease` writes a signed APK to `app\build\outputs\apk\release\app-release.apk` (about 130 MB). Signing reads `IMAGESPEECH_STORE_FILE`, `IMAGESPEECH_STORE_PASSWORD`, `IMAGESPEECH_KEY_ALIAS` and `IMAGESPEECH_KEY_PASSWORD` from the user-level `%USERPROFILE%\.gradle\gradle.properties`, so no secrets are in the repository; without `IMAGESPEECH_STORE_FILE` the release APK is unsigned. A release build cannot be installed over a debug build (different signing keys).
+
+To keep the APK small:
+
+- Only `arm64-v8a` native libraries are packaged. Pass `-PallAbis=true` for an x86_64 emulator.
+- Release builds use R8 code and resource shrinking. ONNX Runtime, OpenCV and LiteRT-LM are kept whole in `app/proguard-rules.pro` because their native code calls back into Java by name.
+- The three OCR/dewarp models store their weights as float16 (`tools/fp16_weights.py`); ONNX Runtime converts them back to float32 at load, so inference is unchanged. On the project's test images and a fresh phone photo, recognized text was identical to the float32 originals and the detection mask overlap was above 99.9%. Device OCR timing was unchanged (about 3.3 s detection, 20 s for a full book page on the SM-A176U1). 8-bit weights were tried and rejected: they changed about 1.6% of recognized characters.
+
+Validated on the SM-A176U1 with a shrunk release build: launch, camera, Gemma reading, a typed question, Repeat, settings, and OCR-only reading (Gemma model hidden).
+
 Unit tests cover ordering, page splitting/gutter detection, overlay coordinate projection, uncertainty, early speech, bounded cancellation, routing, sentence chunking, and WAV encoding. Android instrumentation covers warped-book streaming latency, a larger input workload, exact rotated-line recognition, and the shared real-camera capture configuration. Grant camera permission before running `CameraCaptureTest`.
 
 Deterministic Gemma tests use a scripted fake model (no native code) and cover streaming text and ordered speech, follow-ups that reuse encoded images, additional views, failures with partial text, cancellation and stale-turn suppression, conversation rebuilding and trimming, spoken questions passed as audio, replay without the model, download completeness checks, and lane routing. Runtime logs report first visible text, first synthesized passage, total generation time, and input bytes. Real-device testing with the downloaded model is still needed for reading accuracy, speed, memory use, and the GPU/CPU fallback.

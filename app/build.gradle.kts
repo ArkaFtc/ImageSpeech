@@ -21,6 +21,44 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Only 64-bit ARM phones are targeted (LiteRT-LM ships no 32-bit ARM build anyway).
+        // Dropping x86, x86_64 and armeabi-v7a removes most of the APK's native-library weight.
+        // Pass -PallAbis=true to build for every ABI, e.g. for an x86_64 emulator.
+        if (providers.gradleProperty("allAbis").orNull != "true") {
+            ndk { abiFilters += "arm64-v8a" }
+        }
+    }
+
+    // Release signing reads the keystore location and passwords from the user-level
+    // ~/.gradle/gradle.properties, so no secrets live in the repository. Without
+    // IMAGESPEECH_STORE_FILE set, release builds are left unsigned.
+    signingConfigs {
+        create("release") {
+            val storePath = providers.gradleProperty("IMAGESPEECH_STORE_FILE").orNull
+            if (storePath != null) {
+                fun required(name: String) = providers.gradleProperty(name).orNull
+                    ?.takeIf { it.isNotBlank() }
+                    ?: throw GradleException("$name is missing from ~/.gradle/gradle.properties")
+                storeFile = file(storePath)
+                storePassword = required("IMAGESPEECH_STORE_PASSWORD")
+                keyAlias = required("IMAGESPEECH_KEY_ALIAS")
+                keyPassword = required("IMAGESPEECH_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // R8 removes unused code and resources. Native-library classes are kept whole in
+            // proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (providers.gradleProperty("IMAGESPEECH_STORE_FILE").isPresent) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     testOptions {
